@@ -10,7 +10,7 @@ import (
 )
 
 func TestRootCommandShowsHelp(t *testing.T) {
-	command := cli.NewRootCommand()
+	command := cli.NewRootCommand("dev")
 	var output bytes.Buffer
 	command.SetOut(&output)
 	command.SetErr(&output)
@@ -33,7 +33,7 @@ func TestRootCommandShowsHelp(t *testing.T) {
 }
 
 func TestRootCommandRejectsArguments(t *testing.T) {
-	command := cli.NewRootCommand()
+	command := cli.NewRootCommand("dev")
 	command.SetArgs([]string{"unexpected"})
 
 	err := command.ExecuteContext(context.Background())
