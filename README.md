@@ -47,6 +47,35 @@ The initial design is documented in:
 
 These documents describe the intended contract rather than an implemented or stable API.
 
+## Development
+
+Swarrow uses the Go version declared in `go.mod` and `mise.toml`. Install the pinned toolchain with [mise](https://mise.jdx.dev/):
+
+```sh
+mise install
+```
+
+Build the executable with:
+
+```sh
+mise exec -- make build
+```
+
+The build is written to `bin/swarrow`. Development builds report `dev` through both `swarrow version` and `swarrow --version`.
+
+Verify module dependencies and run the formatting, vet and test checks used by continuous integration before submitting a change:
+
+```sh
+mise exec -- go mod verify
+mise exec -- gofmt -l .
+mise exec -- go vet ./...
+mise exec -- go test ./...
+```
+
+The formatting check should produce no output.
+
+The executable entry point lives in `cmd/swarrow`. Testable Cobra command construction lives in `internal/cli`, keeping command state local to each constructed command tree.
+
 ## Licence
 
 Swarrow is licensed under the [Apache License 2.0](LICENSE).
