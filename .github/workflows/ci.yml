@@ -38,6 +38,30 @@ jobs:
       - name: Test
         run: go test ./...
 
+  binaries:
+    name: Build binaries
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Build binaries
+        run: |
+          for architecture in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="${architecture}" go build \
+              -buildvcs=false \
+              -trimpath \
+              -ldflags="-s -w -X main.version=dev" \
+              -o "/tmp/swarrow-linux-${architecture}" \
+              ./cmd/swarrow
+          done
+
   image:
     name: Build image
     runs-on: ubuntu-latest
