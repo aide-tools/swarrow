@@ -43,9 +43,9 @@ The initial design is documented in:
 
 - [Design](docs/design.md)
 - [Threat model](docs/threat-model.md)
-- [Illustrative configuration](docs/configuration.md)
+- [Configuration](docs/configuration.md)
 
-These documents describe the intended contract rather than an implemented or stable API.
+The design and threat model describe the intended contract. The configuration document describes the implemented initial schema. None of these documents defines a stable API yet.
 
 ## Development
 
