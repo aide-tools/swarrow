@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"strings"
@@ -34,8 +35,8 @@ type deployer interface {
 }
 
 // New creates the complete Swarrow HTTP handler.
-func New(verifier tokenVerifier, deploymentService deployer, requestTimeout time.Duration) (http.Handler, error) {
-	if verifier == nil || deploymentService == nil || requestTimeout <= 0 {
+func New(verifier tokenVerifier, deploymentService deployer, requestTimeout time.Duration, logger *slog.Logger) (http.Handler, error) {
+	if verifier == nil || deploymentService == nil || requestTimeout <= 0 || logger == nil {
 		return nil, ErrInvalidConfiguration
 	}
 
@@ -43,6 +44,7 @@ func New(verifier tokenVerifier, deploymentService deployer, requestTimeout time
 		verifier:       verifier,
 		deployer:       deploymentService,
 		requestTimeout: requestTimeout,
+		logger:         logger,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", api.health)
@@ -55,6 +57,7 @@ type handler struct {
 	verifier       tokenVerifier
 	deployer       deployer
 	requestTimeout time.Duration
+	logger         *slog.Logger
 }
 
 func (handler *handler) health(writer http.ResponseWriter, request *http.Request) {
@@ -73,7 +76,16 @@ func (handler *handler) health(writer http.ResponseWriter, request *http.Request
 }
 
 func (handler *handler) deployment(writer http.ResponseWriter, request *http.Request) {
+	audit := deploymentAudit{
+		method:     request.Method,
+		deployment: request.PathValue("deployment"),
+		startedAt:  time.Now(),
+	}
+	defer func() { handler.writeAudit(request.Context(), audit) }()
+
 	if request.Method != http.MethodPost {
+		audit.status = http.StatusMethodNotAllowed
+		audit.errorCode = "method_not_allowed"
 		writeError(writer, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
 		return
 	}
@@ -86,27 +98,42 @@ func (handler *handler) deployment(writer http.ResponseWriter, request *http.Req
 
 	rawToken, err := bearerToken(request.Header.Values("Authorization"))
 	if err != nil {
+		audit.status = http.StatusUnauthorized
+		audit.errorCode = "unauthorized"
 		writeError(writer, http.StatusUnauthorized, "unauthorized", "Valid Bearer authentication is required")
 		return
 	}
 
 	claims, err := handler.verifier.Verify(ctx, rawToken)
 	if err != nil {
-		if writeContextError(writer, ctx) {
+		if status, code, written := writeContextError(writer, ctx); written {
+			audit.status = status
+			audit.errorCode = code
 			return
 		}
+		audit.status = http.StatusUnauthorized
+		audit.errorCode = "unauthorized"
 		writeError(writer, http.StatusUnauthorized, "unauthorized", "Valid Bearer authentication is required")
 		return
 	}
+	audit.authenticated = true
+	audit.repositoryID = claims.RepositoryID
+	audit.workflowRef = claims.WorkflowRef
+	audit.environment = claims.Environment
 
 	deploymentRequest, err := decodeDeploymentRequest(writer, request)
 	if err != nil {
-		if writeContextError(writer, ctx) {
+		if status, code, written := writeContextError(writer, ctx); written {
+			audit.status = status
+			audit.errorCode = code
 			return
 		}
+		audit.status = http.StatusBadRequest
+		audit.errorCode = "invalid_request"
 		writeError(writer, http.StatusBadRequest, "invalid_request", "Request body must contain one canonical sha256 digest")
 		return
 	}
+	audit.digest = deploymentRequest.Digest
 
 	outcome, err := handler.deployer.Deploy(ctx, deploy.Request{
 		Deployment: request.PathValue("deployment"),
@@ -114,11 +141,15 @@ func (handler *handler) deployment(writer http.ResponseWriter, request *http.Req
 		Claims:     claims,
 	})
 	if err != nil {
-		writeDeployError(writer, outcome, err)
+		audit.action = outcome.Action
+		audit.conclusion = outcome.Conclusion
+		audit.status, audit.errorCode = writeDeployError(writer, outcome, err)
 		return
 	}
 
-	writeOutcome(writer, outcome)
+	audit.action = outcome.Action
+	audit.conclusion = outcome.Conclusion
+	audit.status, audit.errorCode = writeOutcome(writer, outcome)
 }
 
 func (handler *handler) notFound(writer http.ResponseWriter, _ *http.Request) {
@@ -223,7 +254,7 @@ type taskFailure struct {
 	Error string `json:"error"`
 }
 
-func writeOutcome(writer http.ResponseWriter, outcome deploy.Outcome) {
+func writeOutcome(writer http.ResponseWriter, outcome deploy.Outcome) (int, string) {
 	status := http.StatusOK
 	switch outcome.Conclusion {
 	case swarm.ConclusionCompleted:
@@ -235,13 +266,14 @@ func writeOutcome(writer http.ResponseWriter, outcome deploy.Outcome) {
 		status = http.StatusBadGateway
 	default:
 		writeError(writer, http.StatusInternalServerError, "internal_error", "Deployment produced no recognised conclusion")
-		return
+		return http.StatusInternalServerError, "internal_error"
 	}
 
 	writeJSON(writer, status, outcomeResponse(outcome))
+	return status, ""
 }
 
-func writeDeployError(writer http.ResponseWriter, outcome deploy.Outcome, err error) {
+func writeDeployError(writer http.ResponseWriter, outcome deploy.Outcome, err error) (int, string) {
 	status, code, message := http.StatusBadGateway, "deployment_error", "Deployment could not be completed"
 	switch {
 	case errors.Is(err, policy.ErrDenied), errors.Is(err, replay.ErrReused):
@@ -261,6 +293,7 @@ func writeDeployError(writer http.ResponseWriter, outcome deploy.Outcome, err er
 	response := outcomeResponse(outcome)
 	response.Error = &errorResponse{Code: code, Message: message}
 	writeJSON(writer, status, response)
+	return status, code
 }
 
 func outcomeResponse(outcome deploy.Outcome) response {
@@ -294,17 +327,64 @@ func writeError(writer http.ResponseWriter, status int, code string, message str
 	writeJSON(writer, status, response{Error: &errorResponse{Code: code, Message: message}})
 }
 
-func writeContextError(writer http.ResponseWriter, ctx context.Context) bool {
+func writeContextError(writer http.ResponseWriter, ctx context.Context) (int, string, bool) {
 	switch ctx.Err() {
 	case context.DeadlineExceeded:
 		writeError(writer, http.StatusGatewayTimeout, "request_timeout", "Deployment request timed out")
-		return true
+		return http.StatusGatewayTimeout, "request_timeout", true
 	case context.Canceled:
 		writeError(writer, http.StatusRequestTimeout, "request_cancelled", "Deployment request was cancelled")
-		return true
+		return http.StatusRequestTimeout, "request_cancelled", true
 	default:
-		return false
+		return 0, "", false
 	}
+}
+
+type deploymentAudit struct {
+	method        string
+	deployment    string
+	status        int
+	errorCode     string
+	authenticated bool
+	repositoryID  string
+	workflowRef   string
+	environment   string
+	digest        string
+	action        deploy.Action
+	conclusion    swarm.Conclusion
+	startedAt     time.Time
+}
+
+func (handler *handler) writeAudit(ctx context.Context, audit deploymentAudit) {
+	attributes := []any{
+		"event", "deployment_request",
+		"method", audit.method,
+		"deployment", audit.deployment,
+		"status", audit.status,
+		"authenticated", audit.authenticated,
+		"duration_ms", time.Since(audit.startedAt).Milliseconds(),
+	}
+	if audit.errorCode != "" {
+		attributes = append(attributes, "error_code", audit.errorCode)
+	}
+	if audit.authenticated {
+		attributes = append(attributes,
+			"repository_id", audit.repositoryID,
+			"workflow_ref", audit.workflowRef,
+			"environment", audit.environment,
+		)
+	}
+	if audit.digest != "" {
+		attributes = append(attributes, "digest", audit.digest)
+	}
+	if audit.action != "" {
+		attributes = append(attributes, "action", audit.action)
+	}
+	if audit.conclusion != "" {
+		attributes = append(attributes, "conclusion", audit.conclusion)
+	}
+
+	handler.logger.InfoContext(ctx, "deployment request", attributes...)
 }
 
 func writeJSON(writer http.ResponseWriter, status int, value any) {

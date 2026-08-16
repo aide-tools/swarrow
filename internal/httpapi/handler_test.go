@@ -1,8 +1,11 @@
 package httpapi_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -175,6 +178,51 @@ func TestDeploymentDoesNotExposeRejectedTokens(t *testing.T) {
 	}
 }
 
+func TestDeploymentWritesStructuredAuditEventsWithoutCredentials(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	claims := githuboidc.Claims{
+		TokenID:      "secret-token-id",
+		RepositoryID: "123456789",
+		WorkflowRef:  "example/example/.github/workflows/deploy.yml@refs/heads/main",
+		Environment:  "production",
+	}
+	handler, err := httpapi.New(
+		&fakeVerifier{verify: func(context.Context, string) (githuboidc.Claims, error) { return claims, nil }},
+		&fakeDeployer{deploy: returns(completedOutcome(), nil)},
+		time.Minute,
+		logger,
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, deploymentRequest(http.MethodPost, `{"digest":"`+canonicalDigest+`"}`))
+
+	logEntry := output.String()
+	for _, expected := range []string{
+		`"event":"deployment_request"`,
+		`"deployment":"example-web"`,
+		`"status":200`,
+		`"authenticated":true`,
+		`"repository_id":"123456789"`,
+		`"environment":"production"`,
+		`"digest":"` + canonicalDigest + `"`,
+		`"action":"updated"`,
+		`"conclusion":"completed"`,
+	} {
+		if !strings.Contains(logEntry, expected) {
+			t.Errorf("audit event %q does not contain %q", logEntry, expected)
+		}
+	}
+	for _, forbidden := range []string{"signed-token", "secret-token-id", "service-id"} {
+		if strings.Contains(logEntry, forbidden) {
+			t.Errorf("audit event exposes %q: %s", forbidden, logEntry)
+		}
+	}
+}
+
 func TestDeploymentMapsConclusions(t *testing.T) {
 	tests := map[swarm.Conclusion]int{
 		swarm.ConclusionCompleted:  http.StatusOK,
@@ -304,14 +352,14 @@ func TestRoutesRejectUnsupportedMethodsAndPaths(t *testing.T) {
 }
 
 func TestNewRejectsInvalidConfiguration(t *testing.T) {
-	if _, err := httpapi.New(nil, &fakeDeployer{}, time.Minute); !errors.Is(err, httpapi.ErrInvalidConfiguration) {
+	if _, err := httpapi.New(nil, &fakeDeployer{}, time.Minute, slog.Default()); !errors.Is(err, httpapi.ErrInvalidConfiguration) {
 		t.Errorf("New() error = %v, want ErrInvalidConfiguration", err)
 	}
 }
 
 func newHandler(t *testing.T, verifier *fakeVerifier, deployer *fakeDeployer, timeout time.Duration) http.Handler {
 	t.Helper()
-	handler, err := httpapi.New(verifier, deployer, timeout)
+	handler, err := httpapi.New(verifier, deployer, timeout, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
