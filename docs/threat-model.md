@@ -55,9 +55,9 @@ An attacker may forge a token, substitute token metadata or replay a captured re
 
 Required controls include signature and issuer verification, an exact audience, time validation, short token lifetimes, TLS and bounded request bodies. Tokens must never appear in logs or error responses.
 
-Every accepted token must contain a `jti`. Its first use is bound to the exact deployment and digest until the token expires. An exact retry may continue observation or return the recorded outcome, while reusing the `jti` with a different payload must be rejected. Used identifiers are held in a fixed-capacity process cache; exhausting that cache must fail closed rather than evict an unexpired record.
+Every accepted token must contain a `jti`. Its first use is bound to the exact deployment and digest until the token can no longer pass time validation, including expiry clock-skew allowance. An exact retry may continue observation or return the recorded outcome, while reusing the `jti` with a different payload must be rejected. Used identifiers are held in a fixed-capacity process cache; exhausting that cache must fail closed rather than evict a record for a token that may still be accepted.
 
-The cache does not survive a restart, so every accepted token must also contain an `iat` at or after a conservative restart cutoff. The cutoff includes whole-second timestamp precision and the verifier's fixed future clock-skew allowance. Deployments during that brief startup window must fail before reaching Docker. The initial design assumes one Swarrow process. The [deployment request lifecycle](design.md#deployment-request-lifecycle) defines the complete retry behaviour.
+The cache does not survive a restart, so every accepted token must also contain an `iat` at or after a conservative restart cutoff. The cutoff includes whole-second timestamp precision and the verifier's fixed future clock-skew allowance. A token below that cutoff must fail before reaching Docker, even when it was freshly issued; workflows must obtain new tokens until one reaches the cutoff. The initial design assumes one Swarrow process. The [deployment request lifecycle](design.md#deployment-request-lifecycle) defines the complete retry behaviour.
 
 ### Repository or workflow confusion
 
