@@ -51,7 +51,7 @@ The response reports Swarrow's action, such as `updated` or `no_change`, separat
 
 An update submission may become indeterminate if Swarrow sends it to Docker but loses the response through a timeout, cancellation or transport failure. Swarrow must not infer from the missing response that Docker rejected the update. It reports the action as `indeterminate` and does not submit another update during that request. If time remains, it re-inspects the service to establish whether Docker accepted the change.
 
-One required server-wide timeout bounds rollout observation. Five minutes is the intended initial value. When that time expires, Swarrow reports `in_progress` and stops observing; it does not cancel the rollout, which continues in Swarm. A cancelled client request also stops observation without reversing an update already accepted by Swarm. Any reverse proxy must allow the request to remain open for at least the configured observation period.
+One required server-wide timeout bounds the complete request from the moment Swarrow receives it, including authentication, queueing, applying and rollout observation. Five minutes is the intended initial value. If the timeout expires before Swarrow attempts an update, it reports that no update was applied. If an accepted rollout remains active when the timeout expires, Swarrow reports `in_progress` and stops observing; it does not cancel the rollout, which continues in Swarm. A cancelled client request also stops observation without reversing an update already accepted by Swarm. Any reverse proxy must allow the request to remain open for at least the configured request timeout.
 
 Swarrow does not stream progress, monitor the rollout after the request ends, initiate a rollback or retain deployment history. Adding asynchronous operations, status endpoints or continuous reconciliation would require a separate design.
 
@@ -63,7 +63,9 @@ Swarrow keeps used `jti` records in a fixed-capacity memory cache until their to
 
 ### Concurrent requests
 
-Requests targeting the same concrete Swarm service are serialised in arrival order for the apply-and-observe lifecycle. Docker's version index still protects against changes made outside Swarrow, which must be reported explicitly rather than overwritten. Application workflows remain responsible for deciding release order.
+Swarrow creates one fixed-capacity worker queue for each concrete Swarm service in the validated configuration. Requests for a service are processed in the order they enter its queue, one complete apply-and-observe lifecycle at a time. Requests for different services may proceed concurrently.
+
+A request retains its original timeout while queued. If that timeout expires before processing begins, Swarrow removes the request without calling Docker and reports that no update was applied. A full queue is also rejected without calling Docker. Docker's version index still protects against changes made outside Swarrow, which must be reported explicitly rather than overwritten. Application workflows remain responsible for deciding release order.
 
 ## GitHub identity policy
 

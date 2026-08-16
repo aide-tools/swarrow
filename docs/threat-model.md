@@ -85,7 +85,7 @@ Swarrow must inspect the current service, copy its specification, alter only the
 
 Retries or concurrent workflows may submit the same or competing digests.
 
-An exact retry must not repeat the service mutation. Requests targeting the same service must be serialised in arrival order through the apply-and-observe lifecycle. Docker version conflicts and an outside update that supersedes the requested image must produce explicit results rather than accidental last-write-wins behaviour. Application workflows remain responsible for release ordering.
+An exact retry must not repeat the service mutation. Requests targeting the same service must enter a fixed-capacity queue and be serialised through the apply-and-observe lifecycle. The request timeout must include time spent waiting, and an expired or excess queued request must not reach Docker. Docker version conflicts and an outside update that supersedes the requested image must produce explicit results rather than accidental last-write-wins behaviour. Application workflows remain responsible for release ordering.
 
 ### Malicious image
 
