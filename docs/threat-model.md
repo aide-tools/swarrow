@@ -119,6 +119,7 @@ Responses should expose only the information required for the caller's configure
 - A repository authorised to choose an image controls code executed by its target service.
 - Existing service privileges determine the blast radius of a malicious image.
 - The initial version relies on operator-managed TLS termination and host hardening unless the implementation design later provides them directly.
+- After a restart, a fresh authorised request may reapply a digest whose earlier rollout was rolled back or superseded because the initial version retains no durable operation history.
 - Swarrow does not prevent an infrastructure operator from replacing the image through another Docker or stack operation.
 
 ## Security review triggers
