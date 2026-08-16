@@ -31,7 +31,39 @@ This intentionally separates infrastructure state from release state. Swarrow do
 5. Swarrow matches immutable identity claims to a locally configured deployment policy.
 6. It constructs the image reference from the configured repository and supplied digest. The caller cannot supply a service name or image repository.
 7. It inspects the current Swarm service, copies its specification and changes only the container image.
-8. It updates the service using Docker's optimistic version index and reports the deployment result.
+8. It updates the service using Docker's optimistic version index, observes the resulting rollout and reports its observed conclusion.
+
+## Deployment request lifecycle
+
+The initial API uses one synchronous request for each deployment. The GitHub Actions job waits while Swarrow applies at most one image change and observes the corresponding Swarm rollout. Swarrow then returns the state it observed and stops. The caller does not poll a separate status endpoint.
+
+### Applying the image
+
+Swarrow inspects the current service before deciding whether to update it. If the desired image differs, it copies the service specification, changes only the container image and submits the update with the inspected version index.
+
+If the service already has the desired image, Swarrow does not submit another update. It observes an active rollout for that image if one exists, otherwise it reports that no change was required. This distinction keeps the action Swarrow took separate from the rollout state it observed.
+
+### Observing the rollout
+
+After applying or finding the desired image, Swarrow periodically inspects the service and its tasks. It follows that rollout until Swarm reports completion, pauses or fails the update, rolls it back, another update supersedes it or the observation timeout expires. Swarm remains responsible for update order, parallelism, health monitoring and automatic rollback according to the service specification owned by the infrastructure repository.
+
+The response reports Swarrow's action, such as `updated` or `no_change`, separately from the observed conclusion. The initial conclusions are expected to distinguish `completed`, `failed`, `rolled_back`, `superseded` and `in_progress`. These names describe the design and do not yet define the HTTP response schema.
+
+An update submission may become indeterminate if Swarrow sends it to Docker but loses the response through a timeout, cancellation or transport failure. Swarrow must not infer from the missing response that Docker rejected the update. It reports the action as `indeterminate` and does not submit another update during that request. If time remains, it re-inspects the service to establish whether Docker accepted the change.
+
+One required server-wide timeout bounds rollout observation. Five minutes is the intended initial value. When that time expires, Swarrow reports `in_progress` and stops observing; it does not cancel the rollout, which continues in Swarm. A cancelled client request also stops observation without reversing an update already accepted by Swarm. Any reverse proxy must allow the request to remain open for at least the configured observation period.
+
+Swarrow does not stream progress, monitor the rollout after the request ends, initiate a rollback or retain deployment history. Adding asynchronous operations, status endpoints or continuous reconciliation would require a separate design.
+
+### Replay and retries
+
+Every accepted identity token must contain a GitHub-generated `jti` claim. The first request using that token binds the `jti` to the exact deployment and digest. An exact repeat is an idempotent retry: it resumes observation or returns the outcome already recorded without repeating an accepted service update. If submission was indeterminate, the retry first inspects the service image and version. It may submit the update only when that inspection establishes that Docker did not accept the earlier attempt; otherwise it observes the accepted update or returns `indeterminate` without another mutation. Reusing the same `jti` with another deployment or digest is rejected.
+
+Swarrow keeps used `jti` records in a fixed-capacity memory cache until their tokens expire. If the cache has no capacity for another record, Swarrow rejects the request instead of evicting an unexpired record and reopening a replay window. Because those records do not survive a restart, Swarrow records its process start time and rejects tokens issued before that time. A workflow must obtain a fresh token after a restart; inspecting the service then prevents an already accepted image change from being applied twice. This model assumes one Swarrow process in the initial version.
+
+### Concurrent requests
+
+Requests targeting the same concrete Swarm service are serialised in arrival order for the apply-and-observe lifecycle. Docker's version index still protects against changes made outside Swarrow, which must be reported explicitly rather than overwritten. Application workflows remain responsible for deciding release order.
 
 ## GitHub identity policy
 
@@ -43,6 +75,7 @@ Authentication verifies the token signature and the `exp`, `nbf` and `iat` time 
 | --- | --- | --- |
 | `iss` | The identity provider that created the token | Fixed to GitHub.com's canonical `https://token.actions.githubusercontent.com` issuer |
 | `aud` | The intended recipient of the token | Identifies only the configured Swarrow audience |
+| `jti` | GitHub's unique identifier for this token | Present and unused for any different deployment request |
 | `repository_id` | GitHub's stable numeric identity for the application repository | Exactly matches the configured repository ID |
 | `workflow_ref` | The caller workflow file and Git ref | Exactly matches the configured workflow path and ref |
 | `environment` | The GitHub environment assigned to the job | Exactly matches the configured environment name |
@@ -122,3 +155,5 @@ The service should run with an otherwise restricted host identity and should not
 
 - [GitHub OpenID Connect reference](https://docs.github.com/en/actions/reference/security/oidc)
 - [Using OpenID Connect with reusable workflows](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-with-reusable-workflows)
+- [Docker Swarm rolling updates](https://docs.docker.com/engine/swarm/swarm-tutorial/rolling-update/)
+- [Docker Swarm service update behaviour](https://docs.docker.com/engine/swarm/services/#configure-a-services-update-behavior)
