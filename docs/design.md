@@ -33,6 +33,24 @@ This intentionally separates infrastructure state from release state. Swarrow do
 7. It inspects the current Swarm service, copies its specification and changes only the container image.
 8. It updates the service using Docker's optimistic version index and reports the deployment result.
 
+## GitHub identity policy
+
+The initial version accepts GitHub.com OpenID Connect tokens only for jobs defined directly in the authorised application repository. Reusable workflows are not supported. A token containing a `job_workflow_ref` claim must be rejected rather than interpreted as a direct-workflow identity.
+
+Authentication must verify the token signature, the canonical `https://token.actions.githubusercontent.com` issuer, the one configured audience and the `exp`, `nbf` and `iat` time constraints. The token must identify only the configured Swarrow audience; accepting an additional or fallback audience would broaden its authority.
+
+After authentication, a deployment policy must require exact matches for these claims:
+
+| Claim | Requirement |
+| --- | --- |
+| `repository_id` | Matches the configured immutable numeric repository ID |
+| `workflow_ref` | Matches the configured workflow path and ref |
+| `environment` | Matches the configured GitHub environment name |
+
+All three constraints are mandatory and non-empty. The readable `repository` claim may be retained for diagnostics, but it cannot grant authority or replace `repository_id`.
+
+Swarrow does not parse or authorise from the `sub` claim. GitHub repositories may use different default subject formats, while the signed identity claims above provide the values Swarrow needs directly. The `workflow_ref` already constrains the direct workflow file and ref, so the initial policy does not add separate `ref`, `event_name` or actor constraints.
+
 ## Core invariants
 
 The implementation must preserve these properties:
@@ -41,7 +59,7 @@ The implementation must preserve these properties:
 2. A caller cannot select or override an image repository directly.
 3. Every accepted image is identified by an OCI digest, not only a mutable tag.
 4. Authorisation uses immutable repository identity in addition to readable names.
-5. The submitted workflow identity must match the configured environment, ref or reusable workflow constraints where those constraints are enabled.
+5. The submitted workflow identity must match the configured immutable repository ID, direct workflow ref and environment.
 6. A service update changes only its container image. All other fields are copied from the inspected service specification.
 7. Concurrent changes are not overwritten silently. A stale service version must fail and be inspected again.
 8. Credentials and complete identity tokens are never written to logs.
@@ -53,6 +71,7 @@ The implementation must preserve these properties:
 The first useful version is expected to provide:
 
 - GitHub Actions OpenID Connect authentication
+- Direct GitHub Actions workflow identity
 - File-based deployment policy
 - One fixed repository and service per deployment policy
 - Digest-only image updates
@@ -74,6 +93,7 @@ Swarrow is not intended to:
 - Provide a general Docker API proxy
 - Provide a general multi-tenant Docker control plane
 - Replace workload isolation or container hardening
+- Run deployment jobs through reusable workflows
 
 ## Interaction with stack deployment
 
@@ -88,3 +108,8 @@ This behaviour must be documented clearly, but automation for it is outside the 
 Swarrow must communicate with a Swarm manager and is therefore a privileged component. Its security depends on exposing a much smaller interface than the Docker API and enforcing policy before any Docker operation.
 
 The service should run with an otherwise restricted host identity and should not receive unrelated host credentials. Deployment behind TLS is required because a valid workflow token authorises a privileged operation during its short lifetime.
+
+## References
+
+- [GitHub OpenID Connect reference](https://docs.github.com/en/actions/reference/security/oidc)
+- [Using OpenID Connect with reusable workflows](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-with-reusable-workflows)

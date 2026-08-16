@@ -29,7 +29,7 @@ Swarrow is trusted with privileged Docker access. A compromise of the process or
 
 ### Identity provider
 
-GitHub's OpenID Connect issuer is trusted to sign accurate workflow identity claims. Swarrow must verify those claims using the issuer's published keys and must fail closed when verification cannot be completed.
+GitHub.com's canonical OpenID Connect issuer is trusted to sign accurate workflow identity claims. Swarrow must verify those claims using the issuer's published keys and must fail closed when verification cannot be completed.
 
 ### Application repository and workflow
 
@@ -59,7 +59,13 @@ Required controls include signature and issuer verification, an exact audience, 
 
 A repository name can change or be reused. A valid repository may attempt to run an unapproved workflow, ref, event or environment.
 
-Policy should use immutable repository IDs and constrain additional claims where required. Human-readable names may appear in diagnostics but must not be the sole authorisation key.
+Policy must match the immutable `repository_id`, exact `workflow_ref` and exact `environment` claims. Human-readable names may appear in diagnostics but must not be an authorisation key. Swarrow must not derive authority by parsing GitHub's default `sub` format.
+
+### Reusable workflow confusion
+
+A reusable workflow token describes the calling workflow through the standard workflow claims and the called workflow through `job_workflow_ref`. Treating those identities as interchangeable could authorise a caller or shared workflow that the operator did not intend.
+
+The initial version must reject tokens containing a `job_workflow_ref` claim. Supporting reusable workflows requires a separate policy model and security review.
 
 ### Cross-service or cross-image deployment
 
@@ -113,4 +119,4 @@ Responses should expose only the information required for the caller's configure
 
 ## Security review triggers
 
-The threat model must be revisited before adding another identity provider, mutable tags, registry-side automation, topology changes, multi-cluster support, dynamic policy, a browser interface or any generic Docker operation.
+The threat model must be revisited before adding another identity provider, reusable workflows, optional identity constraints, mutable tags, registry-side automation, topology changes, multi-cluster support, dynamic policy, a browser interface or any generic Docker operation.
