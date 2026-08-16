@@ -53,7 +53,11 @@ The selected image is untrusted outside the privileges already granted to the ta
 
 An attacker may forge a token, substitute token metadata or replay a captured request.
 
-Required controls include signature and issuer verification, an exact audience, time validation, short token lifetimes, TLS, bounded request bodies and replay or idempotency handling. Tokens must never appear in logs or error responses.
+Required controls include signature and issuer verification, an exact audience, time validation, short token lifetimes, TLS and bounded request bodies. Tokens must never appear in logs or error responses.
+
+Every accepted token must contain a `jti`. Its first use is bound to the exact deployment and digest until the token can no longer pass time validation, including expiry clock-skew allowance. An exact retry may continue observation or return the recorded outcome, while reusing the `jti` with a different payload must be rejected. Used identifiers are held in a fixed-capacity process cache; exhausting that cache must fail closed rather than evict a record for a token that may still be accepted.
+
+The cache does not survive a restart, so every accepted token must also contain an `iat` at or after a conservative restart cutoff. The cutoff includes whole-second timestamp precision and the verifier's fixed future clock-skew allowance. A token below that cutoff must fail before reaching Docker, even when it was freshly issued; workflows must obtain new tokens until one reaches the cutoff. The initial design assumes one Swarrow process. The [deployment request lifecycle](design.md#deployment-request-lifecycle) defines the complete retry behaviour.
 
 ### Repository or workflow confusion
 
@@ -83,7 +87,7 @@ Swarrow must inspect the current service, copy its specification, alter only the
 
 Retries or concurrent workflows may submit the same or competing digests.
 
-Requests should be idempotent for the same deployment and digest. Updates to one service should be serialised, while a conflicting stale update must produce an explicit result rather than an accidental last-write-wins outcome.
+An exact retry must not repeat the service mutation. Requests targeting the same service must enter a fixed-capacity queue and be serialised through the apply-and-observe lifecycle. The request timeout must include time spent waiting, and an expired or excess queued request must not reach Docker. Docker version conflicts and an outside update that supersedes the requested image must produce explicit results rather than accidental last-write-wins behaviour. Application workflows remain responsible for release ordering.
 
 ### Malicious image
 
@@ -115,6 +119,7 @@ Responses should expose only the information required for the caller's configure
 - A repository authorised to choose an image controls code executed by its target service.
 - Existing service privileges determine the blast radius of a malicious image.
 - The initial version relies on operator-managed TLS termination and host hardening unless the implementation design later provides them directly.
+- After a restart, a fresh authorised request may reapply a digest whose earlier rollout was rolled back or superseded because the initial version retains no durable operation history.
 - Swarrow does not prevent an infrastructure operator from replacing the image through another Docker or stack operation.
 
 ## Security review triggers

@@ -75,4 +75,4 @@ The readable `repository` field is optional and used only for diagnostics. The s
 
 Runtime policy mutation and configuration overlays are not part of the first version.
 
-Replay handling, request idempotency and retry semantics remain separate design decisions. They must be resolved before the deployment endpoint is implemented.
+Replay handling, request idempotency and retry semantics are defined by the [deployment request lifecycle](design.md#deployment-request-lifecycle).
