@@ -59,7 +59,9 @@ Swarrow does not stream progress, monitor the rollout after the request ends, in
 
 Every accepted identity token must contain a GitHub-generated `jti` claim. The first request using that token binds the `jti` to the exact deployment and digest. An exact repeat is an idempotent retry: it resumes observation or returns the outcome already recorded without repeating an accepted service update. If submission was indeterminate, the retry first inspects the service image and version. It may submit the update only when that inspection establishes that Docker did not accept the earlier attempt; otherwise it observes the accepted update or returns `indeterminate` without another mutation. Reusing the same `jti` with another deployment or digest is rejected.
 
-Swarrow keeps used `jti` records in a fixed-capacity memory cache until their tokens expire. If the cache has no capacity for another record, Swarrow rejects the request instead of evicting an unexpired record and reopening a replay window. Because those records do not survive a restart, Swarrow records its process start time and rejects tokens issued before that time. A workflow must obtain a fresh token after a restart; inspecting the service then prevents an already accepted image change from being applied twice. This model assumes one Swarrow process in the initial version.
+Swarrow keeps used `jti` records in a fixed-capacity memory cache until their tokens expire. If the cache has no capacity for another record, Swarrow rejects the request instead of evicting an unexpired record and reopening a replay window.
+
+Because those records do not survive a restart, Swarrow establishes a restart cutoff before accepting tokens. The cutoff is the first whole second after the process start time plus the verifier's fixed allowance for a token issued slightly in the future because of clock skew. Swarrow rejects tokens whose `iat` is earlier than that cutoff. This deliberately creates a short period after startup when deployments are rejected; a workflow must wait until the cutoff passes, obtain a new token and retry. Inspecting the service then prevents an already accepted image change from being applied twice. This model assumes one Swarrow process in the initial version.
 
 ### Concurrent requests
 
@@ -77,6 +79,7 @@ Authentication verifies the token signature and the `exp`, `nbf` and `iat` time 
 | --- | --- | --- |
 | `iss` | The identity provider that created the token | Fixed to GitHub.com's canonical `https://token.actions.githubusercontent.com` issuer |
 | `aud` | The intended recipient of the token | Identifies only the configured Swarrow audience |
+| `iat` | The whole second when GitHub issued the token | Present and at or after the current process's restart cutoff |
 | `jti` | GitHub's unique identifier for this token | Present and unused for any different deployment request |
 | `repository_id` | GitHub's stable numeric identity for the application repository | Exactly matches the configured repository ID |
 | `workflow_ref` | The caller workflow file and Git ref | Exactly matches the configured workflow path and ref |
