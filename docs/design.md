@@ -33,6 +33,33 @@ This intentionally separates infrastructure state from release state. Swarrow do
 7. It inspects the current Swarm service, copies its specification and changes only the container image.
 8. It updates the service using Docker's optimistic version index and reports the deployment result.
 
+## GitHub identity policy
+
+GitHub Actions jobs can request a short-lived OpenID Connect token containing signed claims about the running job. Swarrow first authenticates that token as a statement from GitHub, then authorises the job by comparing a small set of its claims with local deployment policy.
+
+Authentication verifies the token signature and the `exp`, `nbf` and `iat` time constraints. Together, authentication and authorisation evaluate these identity claims:
+
+| Claim | Meaning | Requirement |
+| --- | --- | --- |
+| `iss` | The identity provider that created the token | Fixed to GitHub.com's canonical `https://token.actions.githubusercontent.com` issuer |
+| `aud` | The intended recipient of the token | Identifies only the configured Swarrow audience |
+| `repository_id` | GitHub's stable numeric identity for the application repository | Exactly matches the configured repository ID |
+| `workflow_ref` | The caller workflow file and Git ref | Exactly matches the configured workflow path and ref |
+| `environment` | The GitHub environment assigned to the job | Exactly matches the configured environment name |
+| `job_workflow_ref` | The second workflow that defines a job delegated to a reusable workflow | Absent |
+
+The `repository_id`, `workflow_ref` and `environment` constraints are mandatory and non-empty for every deployment.
+
+A direct workflow defines the deployment job in the configured workflow file. A reusable workflow instead delegates that job to a second workflow, which GitHub identifies through `job_workflow_ref` while retaining information about the caller. Supporting both identities requires an explicit policy for the caller and called workflow. The initial version avoids that ambiguity by accepting direct workflows only and rejecting any token containing `job_workflow_ref`.
+
+### Why other claims are not used
+
+- `repository` is a readable name that can change or be reused. It may appear in diagnostics, but it cannot grant authority or replace `repository_id`.
+- `sub` is a composite subject whose default format can differ between GitHub repositories. Swarrow uses the signed individual claims instead of parsing it.
+- `ref` is not checked separately because `workflow_ref` already identifies the authorised direct workflow file and Git ref.
+- `event_name` is not constrained. The authorised workflow owns its trigger rules, so any trigger that reaches its deployment job and passes its environment protections may deploy.
+- The initiating actor is not an authority. Repository workflow controls and environment protections form the trust boundary instead of a mutable person or bot identity.
+
 ## Core invariants
 
 The implementation must preserve these properties:
@@ -41,7 +68,7 @@ The implementation must preserve these properties:
 2. A caller cannot select or override an image repository directly.
 3. Every accepted image is identified by an OCI digest, not only a mutable tag.
 4. Authorisation uses immutable repository identity in addition to readable names.
-5. The submitted workflow identity must match the configured environment, ref or reusable workflow constraints where those constraints are enabled.
+5. The submitted workflow identity must match the configured immutable repository ID, direct workflow ref and environment.
 6. A service update changes only its container image. All other fields are copied from the inspected service specification.
 7. Concurrent changes are not overwritten silently. A stale service version must fail and be inspected again.
 8. Credentials and complete identity tokens are never written to logs.
@@ -53,6 +80,7 @@ The implementation must preserve these properties:
 The first useful version is expected to provide:
 
 - GitHub Actions OpenID Connect authentication
+- Direct GitHub Actions workflow identity
 - File-based deployment policy
 - One fixed repository and service per deployment policy
 - Digest-only image updates
@@ -74,6 +102,7 @@ Swarrow is not intended to:
 - Provide a general Docker API proxy
 - Provide a general multi-tenant Docker control plane
 - Replace workload isolation or container hardening
+- Run deployment jobs through reusable workflows
 
 ## Interaction with stack deployment
 
@@ -88,3 +117,8 @@ This behaviour must be documented clearly, but automation for it is outside the 
 Swarrow must communicate with a Swarm manager and is therefore a privileged component. Its security depends on exposing a much smaller interface than the Docker API and enforcing policy before any Docker operation.
 
 The service should run with an otherwise restricted host identity and should not receive unrelated host credentials. Deployment behind TLS is required because a valid workflow token authorises a privileged operation during its short lifetime.
+
+## References
+
+- [GitHub OpenID Connect reference](https://docs.github.com/en/actions/reference/security/oidc)
+- [Using OpenID Connect with reusable workflows](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-with-reusable-workflows)

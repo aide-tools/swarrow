@@ -1,6 +1,6 @@
 # Illustrative configuration
 
-This document makes the proposed policy concrete enough to review. It is not a stable schema and is not yet accepted by an implementation.
+This document makes the proposed deployment configuration concrete enough to review. The [GitHub identity policy](design.md#github-identity-policy) defines the meaning and security rationale of its identity fields. This is not a stable schema and is not yet accepted by an implementation.
 
 ## Example
 
@@ -12,7 +12,6 @@ server:
 
 identity_providers:
   github:
-    issuer: https://token.actions.githubusercontent.com
     audience: https://deploy.example.net
 
 deployments:
@@ -36,7 +35,7 @@ The `example-web` deployment grants one capability:
 
 > The configured GitHub repository, running the configured workflow on the configured environment, may update `example_web` to an immutable digest from `ghcr.io/example/example-web`.
 
-The readable `repository` value exists for diagnostics. The immutable `repository_id` is the primary repository identity.
+The `repository_id`, `workflow_ref` and `environment` values apply the exact matches required by the [GitHub identity policy](design.md#github-identity-policy). The readable `repository` value exists only to make diagnostics recognisable to an operator.
 
 The caller does not submit the `service` or `image` values. A request is expected to identify the configured deployment and supply only an immutable digest:
 
@@ -62,9 +61,11 @@ The eventual schema should fail closed:
 
 - Unknown configuration fields are errors
 - Missing identity constraints are not inferred from readable names
+- `repository_id`, `workflow_ref` and `environment` are required and non-empty for every deployment
+- Configuration cannot select another issuer or enable reusable workflows
 - Tags are rejected where a digest is required
 - Duplicate deployment names, services or identity mappings are errors unless a deliberate sharing model is designed later
 - Configuration is validated before the server begins accepting requests
 - Runtime policy mutation is not part of the first version
 
-Whether every deployment must constrain an environment, workflow ref and source ref remains a design decision. The implementation should make omitted constraints explicit rather than treating an empty value ambiguously.
+Replay handling, request idempotency and retry semantics remain separate design decisions. They must be resolved before the deployment endpoint is implemented.
