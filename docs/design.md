@@ -35,21 +35,30 @@ This intentionally separates infrastructure state from release state. Swarrow do
 
 ## GitHub identity policy
 
-The initial version accepts GitHub.com OpenID Connect tokens only for jobs defined directly in the authorised application repository. Reusable workflows are not supported. A token containing a `job_workflow_ref` claim must be rejected rather than interpreted as a direct-workflow identity.
+GitHub Actions jobs can request a short-lived OpenID Connect token containing signed claims about the running job. Swarrow first authenticates that token as a statement from GitHub, then authorises the job by comparing a small set of its claims with local deployment policy.
 
-Authentication must verify the token signature, the canonical `https://token.actions.githubusercontent.com` issuer, the one configured audience and the `exp`, `nbf` and `iat` time constraints. The token must identify only the configured Swarrow audience; accepting an additional or fallback audience would broaden its authority.
+Authentication verifies the token signature and the `exp`, `nbf` and `iat` time constraints. Together, authentication and authorisation evaluate these identity claims:
 
-After authentication, a deployment policy must require exact matches for these claims:
+| Claim | Meaning | Requirement |
+| --- | --- | --- |
+| `iss` | The identity provider that created the token | Fixed to GitHub.com's canonical `https://token.actions.githubusercontent.com` issuer |
+| `aud` | The intended recipient of the token | Identifies only the configured Swarrow audience |
+| `repository_id` | GitHub's stable numeric identity for the application repository | Exactly matches the configured repository ID |
+| `workflow_ref` | The caller workflow file and Git ref | Exactly matches the configured workflow path and ref |
+| `environment` | The GitHub environment assigned to the job | Exactly matches the configured environment name |
+| `job_workflow_ref` | The second workflow that defines a job delegated to a reusable workflow | Absent |
 
-| Claim | Requirement |
-| --- | --- |
-| `repository_id` | Matches the configured immutable numeric repository ID |
-| `workflow_ref` | Matches the configured workflow path and ref |
-| `environment` | Matches the configured GitHub environment name |
+The `repository_id`, `workflow_ref` and `environment` constraints are mandatory and non-empty for every deployment.
 
-All three constraints are mandatory and non-empty. The readable `repository` claim may be retained for diagnostics, but it cannot grant authority or replace `repository_id`.
+A direct workflow defines the deployment job in the configured workflow file. A reusable workflow instead delegates that job to a second workflow, which GitHub identifies through `job_workflow_ref` while retaining information about the caller. Supporting both identities requires an explicit policy for the caller and called workflow. The initial version avoids that ambiguity by accepting direct workflows only and rejecting any token containing `job_workflow_ref`.
 
-Swarrow does not parse or authorise from the `sub` claim. GitHub repositories may use different default subject formats, while the signed identity claims above provide the values Swarrow needs directly. The `workflow_ref` already constrains the direct workflow file and ref, so the initial policy does not add separate `ref`, `event_name` or actor constraints.
+### Why other claims are not used
+
+- `repository` is a readable name that can change or be reused. It may appear in diagnostics, but it cannot grant authority or replace `repository_id`.
+- `sub` is a composite subject whose default format can differ between GitHub repositories. Swarrow uses the signed individual claims instead of parsing it.
+- `ref` is not checked separately because `workflow_ref` already identifies the authorised direct workflow file and Git ref.
+- `event_name` is not constrained. The authorised workflow owns its trigger rules, so any trigger that reaches its deployment job and passes its environment protections may deploy.
+- The initiating actor is not an authority. Repository workflow controls and environment protections form the trust boundary instead of a mutable person or bot identity.
 
 ## Core invariants
 
