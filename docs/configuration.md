@@ -11,6 +11,7 @@ version: 1
 
 server:
   listen: 127.0.0.1:8080
+  request_timeout: 5m
 
 github:
   audience: https://deploy.example.net
@@ -36,6 +37,8 @@ The `example-web` deployment grants one capability:
 > The configured GitHub repository, running the configured workflow on the configured environment, may update `example_web` to an immutable digest from `ghcr.io/example/example-web`.
 
 The `repository_id`, `workflow_ref` and `environment` values apply the exact matches required by the [GitHub identity policy](design.md#github-identity-policy). Here, `environment` is the GitHub Actions environment assigned to the job, not an operating-system variable or part of the Swarm service configuration. The readable `repository` value exists only to make diagnostics recognisable to an operator.
+
+The required `request_timeout` bounds the complete request from receipt through authorisation, queueing, Docker mutation and rollout observation. Five minutes is the intended initial value. A reverse proxy in front of Swarrow must permit a request to remain open for at least this duration.
 
 The caller does not submit the `service` or `image` values. A request is expected to identify the configured deployment and supply only an immutable digest:
 
@@ -65,6 +68,7 @@ Swarrow validates configuration before making it available as policy. It rejects
 - It uses a YAML alias or merge key
 - `version` is not `1`
 - `server.listen` is not a `host:port` address with a numeric port between 1 and 65535
+- `server.request_timeout` is not a positive Go-style duration such as `5m`
 - `github.audience` is empty
 - No deployments are defined
 - A deployment omits its name, `repository_id`, `workflow_ref`, `environment`, service or image
