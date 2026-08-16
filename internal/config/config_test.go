@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aide-tools/swarrow/internal/config"
 )
@@ -13,6 +14,7 @@ func TestDecode(t *testing.T) {
 version: 1
 server:
   listen: 127.0.0.1:8080
+  request_timeout: 5m
 github:
   audience: https://deploy.example.net
 deployments:
@@ -35,7 +37,8 @@ deployments:
 	want := config.Config{
 		Version: 1,
 		Server: config.Server{
-			Listen: "127.0.0.1:8080",
+			Listen:         "127.0.0.1:8080",
+			RequestTimeout: 5 * time.Minute,
 		},
 		GitHub: config.GitHub{
 			Audience: "https://deploy.example.net",
@@ -77,6 +80,24 @@ server:
 
 	if !strings.Contains(err.Error(), "field timeout not found in type config.Server") {
 		t.Errorf("Decode() error = %q, want an unknown field error", err)
+	}
+}
+
+func TestDecodeRejectsInvalidRequestTimeoutSyntax(t *testing.T) {
+	input := `
+version: 1
+server:
+  listen: 127.0.0.1:8080
+  request_timeout: eventually
+`
+
+	_, err := config.Decode(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("Decode() error = nil, want a duration error")
+	}
+
+	if !strings.Contains(err.Error(), "cannot unmarshal") || !strings.Contains(err.Error(), "time.Duration") {
+		t.Errorf("Decode() error = %q, want a duration error", err)
 	}
 }
 
