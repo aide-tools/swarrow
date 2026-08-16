@@ -1,6 +1,9 @@
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/aide-tools/swarrow/internal/server"
+	"github.com/spf13/cobra"
+)
 
 // NewRootCommand creates the top-level Swarrow command.
 func NewRootCommand(version string) *cobra.Command {
@@ -18,6 +21,7 @@ func NewRootCommand(version string) *cobra.Command {
 
 	command.CompletionOptions.DisableDefaultCmd = true
 	command.SetVersionTemplate("swarrow {{.Version}}\n")
+	command.AddCommand(newServeCommand(version, server.Run))
 	command.AddCommand(newVersionCommand(version))
 
 	return command
