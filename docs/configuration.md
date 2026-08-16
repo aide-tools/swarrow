@@ -55,6 +55,8 @@ Swarrow would construct this final image reference:
 ghcr.io/example/example-web@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
 
+The configured `target.image` is only a repository name and must not contain a tag or digest. Each deployment request must instead supply a canonical SHA-256 digest in the form `sha256:` followed by 64 lowercase hexadecimal characters. Tags such as `example-123abc`, semantic versions and `latest` are not accepted as release identifiers; a tag remains mutable even when its name is derived from a commit. Swarrow combines the configured repository with the supplied digest and does not ask Docker to resolve a tag through the registry.
+
 ## Validation
 
 Swarrow validates configuration before making it available as policy. It rejects the document when:
