@@ -61,7 +61,7 @@ Every accepted identity token must contain a GitHub-generated `jti` claim. The f
 
 Swarrow keeps used `jti` records in a fixed-capacity memory cache until their tokens can no longer pass time validation, including the verifier's fixed expiry clock-skew allowance. If the cache has no capacity for another record, Swarrow rejects the request instead of evicting a record for a token that may still be accepted and reopening a replay window.
 
-Because those records do not survive a restart, Swarrow establishes a restart cutoff before accepting tokens. The cutoff is the first whole second after the process start time plus the verifier's fixed allowance for a token issued slightly in the future because of clock skew. Swarrow rejects tokens whose `iat` is earlier than that cutoff. This deliberately creates a short period after startup when deployments are rejected; a workflow must obtain new tokens and retry until a token's `iat` reaches the cutoff. The exact delay depends on the difference between GitHub's clock and the server's clock.
+Because those records do not survive a restart, Swarrow establishes a restart cutoff before accepting tokens. The cutoff is the first whole second after the process start time plus the verifier's fixed 30-second allowance for a token issued slightly in the future because of clock skew. Swarrow rejects tokens whose `iat` is earlier than that cutoff. This deliberately creates a short period after startup when deployments are rejected; a workflow must obtain new tokens and retry until a token's `iat` reaches the cutoff. The exact delay depends on the difference between GitHub's clock and the server's clock.
 
 A fresh token accepted after restart is a new authorisation. Inspecting the service avoids another update when the requested image remains its current target. If the earlier rollout was rolled back or superseded while Swarrow was unavailable, no in-memory evidence survives to distinguish that history and the fresh request may apply the digest again. Preventing that would require durable operation history. This model assumes one Swarrow process in the initial version.
 
@@ -75,7 +75,7 @@ A request retains its original timeout while queued. If that timeout expires bef
 
 GitHub Actions jobs can request a short-lived OpenID Connect token containing signed claims about the running job. Swarrow first authenticates that token as a statement from GitHub, then authorises the job by comparing a small set of its claims with local deployment policy.
 
-Authentication verifies the token signature and the `exp`, `nbf` and `iat` time constraints. Together, authentication and authorisation evaluate these identity claims:
+Authentication discovers GitHub's signing keys through its fixed issuer, accepts only RS256 signatures and requires the configured audience to be the token's only audience. It applies one non-configurable 30-second clock-skew allowance to the `exp`, `nbf` and `iat` constraints. Together, authentication and authorisation evaluate these identity claims:
 
 | Claim | Meaning | Requirement |
 | --- | --- | --- |
@@ -162,5 +162,6 @@ The service should run with an otherwise restricted host identity and should not
 
 - [GitHub OpenID Connect reference](https://docs.github.com/en/actions/reference/security/oidc)
 - [Using OpenID Connect with reusable workflows](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-with-reusable-workflows)
+- [Go OpenID Connect client](https://github.com/coreos/go-oidc)
 - [Docker Swarm rolling updates](https://docs.docker.com/engine/swarm/swarm-tutorial/rolling-update/)
 - [Docker Swarm service update behaviour](https://docs.docker.com/engine/swarm/services/#configure-a-services-update-behavior)
