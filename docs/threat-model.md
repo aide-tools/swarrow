@@ -53,7 +53,9 @@ The selected image is untrusted outside the privileges already granted to the ta
 
 An attacker may forge a token, substitute token metadata or replay a captured request.
 
-Required controls include signature and issuer verification, an exact audience, time validation, short token lifetimes, TLS, bounded request bodies and replay or idempotency handling. Tokens must never appear in logs or error responses.
+Required controls include signature and issuer verification, an exact audience, time validation, short token lifetimes, TLS and bounded request bodies. Tokens must never appear in logs or error responses.
+
+Every accepted token must contain a `jti`. Its first use is bound to the exact deployment and digest until the token expires. An exact retry may continue observation or return the recorded outcome, while reusing the `jti` with a different payload must be rejected. Used identifiers are held in a fixed-capacity process cache; exhausting that cache must fail closed rather than evict an unexpired record. Tokens issued before the current process started must also be rejected because the cache does not survive a restart. The initial design assumes one Swarrow process. The [deployment request lifecycle](design.md#deployment-request-lifecycle) defines the complete retry behaviour.
 
 ### Repository or workflow confusion
 
@@ -83,7 +85,7 @@ Swarrow must inspect the current service, copy its specification, alter only the
 
 Retries or concurrent workflows may submit the same or competing digests.
 
-Requests should be idempotent for the same deployment and digest. Updates to one service should be serialised, while a conflicting stale update must produce an explicit result rather than an accidental last-write-wins outcome.
+An exact retry must not repeat the service mutation. Requests targeting the same service must be serialised in arrival order through the apply-and-observe lifecycle. Docker version conflicts and an outside update that supersedes the requested image must produce explicit results rather than accidental last-write-wins behaviour. Application workflows remain responsible for release ordering.
 
 ### Malicious image
 
