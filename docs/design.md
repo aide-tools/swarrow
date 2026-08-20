@@ -41,6 +41,8 @@ The initial API uses one synchronous request for each deployment. The GitHub Act
 
 Swarrow inspects the current service before deciding whether to update it. If the desired image differs, it copies the service specification, changes only the container image and submits the update with the inspected version index.
 
+The update tells Docker to retain any registry credentials already stored with the current service. Swarrow does not accept registry credentials from the caller or read an operator's Docker CLI configuration. Because the caller supplies an immutable digest, Swarrow does not ask Docker to resolve a tag or pin the image through a registry lookup.
+
 If the service already has the desired image, Swarrow does not submit another update. It observes an active rollout for that image if one exists, otherwise it reports that no change was required. This distinction keeps the action Swarrow took separate from the rollout state it observed.
 
 ### Observing the rollout
@@ -49,7 +51,7 @@ After applying or finding the desired image, Swarrow periodically inspects the s
 
 The response reports Swarrow's action, such as `updated` or `no_change`, separately from the observed conclusion. The initial conclusions are expected to distinguish `completed`, `failed`, `rolled_back`, `superseded` and `in_progress`. These names describe the design and do not yet define the HTTP response schema.
 
-An update submission may become indeterminate if Swarrow sends it to Docker but loses the response through a timeout, cancellation or transport failure. Swarrow must not infer from the missing response that Docker rejected the update. It reports the action as `indeterminate` and does not submit another update during that request. If time remains, it re-inspects the service to establish whether Docker accepted the change.
+An update submission may become indeterminate if Swarrow sends it to Docker but loses the response through a timeout, cancellation or transport failure. Swarrow must not infer from the missing response that Docker rejected the update. It reports the action as `indeterminate` and does not submit another update during that request. If Docker definitively refuses the update, Swarrow instead reports it as `rejected`. If time remains after an indeterminate submission, Swarrow re-inspects the service to establish whether Docker accepted the change.
 
 One required server-wide timeout bounds the complete request from the moment Swarrow receives it, including authentication, queueing, applying and rollout observation. Five minutes is the intended initial value. If the timeout expires before Swarrow attempts an update, it reports that no update was applied. If an accepted rollout remains active when the timeout expires, Swarrow reports `in_progress` and stops observing; it does not cancel the rollout, which continues in Swarm. A cancelled client request also stops observation without reversing an update already accepted by Swarm. Any reverse proxy must allow the request to remain open for at least the configured request timeout.
 
