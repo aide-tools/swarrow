@@ -174,6 +174,9 @@ func (updater *Updater) inspect(ctx context.Context, serviceName string, reposit
 	if container == nil {
 		return inspectedTarget{}, fmt.Errorf("%w: service %q does not use container tasks", ErrUnsupportedService, serviceName)
 	}
+	if isJobService(service) {
+		return inspectedTarget{}, fmt.Errorf("%w: service %q uses job mode", ErrUnsupportedService, serviceName)
+	}
 
 	return inspectedTarget{service: service, container: container, image: image}, nil
 }
@@ -216,4 +219,8 @@ func sameImage(current string, desired string) bool {
 
 	return reference.TrimNamed(currentNamed).String() == reference.TrimNamed(desiredNamed).String() &&
 		currentDigested.Digest() == desiredDigested.Digest()
+}
+
+func isJobService(service swarmtypes.Service) bool {
+	return service.Spec.Mode.ReplicatedJob != nil || service.Spec.Mode.GlobalJob != nil
 }

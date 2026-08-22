@@ -150,6 +150,29 @@ func TestApplyRejectsNonContainerService(t *testing.T) {
 	}
 }
 
+func TestApplyRejectsJobServices(t *testing.T) {
+	tests := map[string]swarmtypes.ServiceMode{
+		"replicated job": {ReplicatedJob: &swarmtypes.ReplicatedJob{}},
+		"global job":     {GlobalJob: &swarmtypes.GlobalJob{}},
+	}
+
+	for name, mode := range tests {
+		t.Run(name, func(t *testing.T) {
+			service := populatedService()
+			service.Spec.Mode = mode
+			client := &fakeClient{service: service}
+
+			_, err := swarm.NewUpdater(client).Apply(context.Background(), "example_web", repository, imageDigest)
+			if !errors.Is(err, swarm.ErrUnsupportedService) {
+				t.Fatalf("Apply() error = %v, want ErrUnsupportedService", err)
+			}
+			if client.updateCalls != 0 {
+				t.Errorf("ServiceUpdate() calls = %d, want 0", client.updateCalls)
+			}
+		})
+	}
+}
+
 func TestApplyReportsUpdateErrorsAsIndeterminate(t *testing.T) {
 	updateError := errors.New("connection closed")
 	client := &fakeClient{service: populatedService(), updateError: updateError}
