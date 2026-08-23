@@ -64,7 +64,7 @@ jobs:
           gh release create "${RELEASE_TAG}" \
             --draft \
             --generate-notes \
-            --title "Swarrow ${RELEASE_TAG}" \
+            --title "${RELEASE_TAG}" \
             --verify-tag
 
   binaries:
@@ -215,6 +215,7 @@ jobs:
     steps:
       - name: Publish GitHub release
         env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release edit "${RELEASE_TAG}" --draft=false
+        run: gh release edit "${RELEASE_TAG}" --repo "${GH_REPO}" --draft=false
