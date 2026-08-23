@@ -24,6 +24,21 @@ const (
 	defaultHTTPTimeout = 10 * time.Second
 )
 
+// RestartWarmupError identifies a valid token issued before this process's
+// restart cutoff while a freshly issued token may still reach that cutoff.
+type RestartWarmupError struct {
+	retryAfter time.Duration
+}
+
+func (err *RestartWarmupError) Error() string {
+	return "iat is before the current process restart cutoff"
+}
+
+// RetryAfter returns a conservative delay before obtaining another token.
+func (err *RestartWarmupError) RetryAfter() time.Duration {
+	return err.retryAfter
+}
+
 // Options configures GitHub token verification.
 type Options struct {
 	Audience   string
@@ -101,6 +116,12 @@ func newVerifier(underlying tokenVerifier, audience string, now func() time.Time
 		now:           now,
 		restartCutoff: startedAt.Truncate(time.Second).Add(time.Second + ClockSkew),
 	}
+}
+
+// ConservativeReadyAt returns when a freshly issued token is guaranteed to
+// reach the restart cutoff within the permitted clock skew.
+func (verifier *Verifier) ConservativeReadyAt() time.Time {
+	return verifier.restartCutoff.Add(ClockSkew)
 }
 
 // Verify authenticates a token and returns its required GitHub Actions claims.
@@ -196,6 +217,11 @@ func (raw rawClaims) validate(now time.Time, restartCutoff time.Time) (Claims, e
 		return Claims{}, errors.New("iat is too far in the future")
 	}
 	if issuedAt.Before(restartCutoff) {
+		conservativeReadyAt := restartCutoff.Add(ClockSkew)
+		if now.Before(conservativeReadyAt) {
+			retryAfter := shorterDuration(restartCutoff.Sub(issuedAt), conservativeReadyAt.Sub(now))
+			return Claims{}, &RestartWarmupError{retryAfter: retryAfter}
+		}
 		return Claims{}, errors.New("iat is before the current process restart cutoff")
 	}
 
@@ -213,6 +239,13 @@ func (raw rawClaims) validate(now time.Time, restartCutoff time.Time) (Claims, e
 		ExpiresAt:             expiresAt,
 		ValidUntil:            validUntil,
 	}, nil
+}
+
+func shorterDuration(first time.Duration, second time.Duration) time.Duration {
+	if first < second {
+		return first
+	}
+	return second
 }
 
 func requiredString(name string, value *string) (string, error) {
