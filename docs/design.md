@@ -67,9 +67,11 @@ Swarrow does not stream progress, monitor the rollout after the request ends, in
 
 ### Replay and retries
 
-Every accepted identity token must contain a GitHub-generated `jti` claim. The first request using that token binds the `jti` to the exact deployment and digest. An exact repeat is an idempotent retry: it resumes observation or returns the outcome already recorded without repeating an accepted service update. If submission was indeterminate, the retry first inspects the service image and version. It may submit the update only when that inspection establishes that Docker did not accept the earlier attempt; otherwise it observes the accepted update or returns `indeterminate` without another mutation. Reusing the same `jti` with another deployment or digest is rejected.
+Every accepted identity token must contain a GitHub-generated `jti` claim. The first request using that token binds the `jti` to the exact deployment and digest. An exact repeat is an idempotent retry: it resumes observation or returns the outcome already recorded without repeating an accepted service update. If observation failed before reaching a conclusion, the retry continues from any rollout identity already established. If submission was indeterminate, the retry first inspects the service image and version. It may submit the update only when that inspection establishes that Docker did not accept the earlier attempt; otherwise it observes the accepted update or returns `indeterminate` without another mutation. Reusing the same `jti` with another deployment or digest is rejected.
 
 Swarrow keeps used `jti` records in a fixed-capacity memory cache until their tokens can no longer pass time validation, including the verifier's fixed expiry clock-skew allowance. If the cache has no capacity for another record, Swarrow rejects the request instead of evicting a record for a token that may still be accepted and reopening a replay window.
+
+The initial process retains at most 1,024 unexpired replay records. This is an internal safety limit rather than a configuration overlay.
 
 Because those records do not survive a restart, Swarrow establishes a restart cutoff before accepting tokens. The cutoff is the first whole second after the process start time plus the verifier's fixed 30-second allowance for a token issued slightly in the future because of clock skew. Swarrow rejects tokens whose `iat` is earlier than that cutoff. This deliberately creates a short period after startup when deployments are rejected; a workflow must obtain new tokens and retry until a token's `iat` reaches the cutoff. The exact delay depends on the difference between GitHub's clock and the server's clock.
 
@@ -78,6 +80,8 @@ A fresh token accepted after restart is a new authorisation. Inspecting the serv
 ### Concurrent requests
 
 Swarrow creates one fixed-capacity worker queue for each concrete Swarm service in the validated configuration. Requests for a service are processed in the order they enter its queue, one complete apply-and-observe lifecycle at a time. Requests for different services may proceed concurrently.
+
+Each initial worker admits at most 16 waiting requests in addition to the request it is processing. This is an internal safety limit rather than a per-service setting.
 
 A request retains its original timeout while queued. If that timeout expires before processing begins, Swarrow removes the request without calling Docker and reports that no update was applied. A full queue is also rejected without calling Docker. Docker's version index still protects against changes made outside Swarrow, which must be reported explicitly rather than overwritten. Application workflows remain responsible for deciding release order.
 

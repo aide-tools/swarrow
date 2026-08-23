@@ -3,6 +3,7 @@ package config_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aide-tools/swarrow/internal/config"
 )
@@ -42,6 +43,7 @@ func TestValidateReportsInvalidFields(t *testing.T) {
 	for _, expected := range []string{
 		"version: must be 1",
 		"server.listen: must be a host and port",
+		"server.request_timeout: must be a positive duration",
 		"github.audience: must not be empty",
 		"deployments[0].name: must not be empty",
 		"deployments[0].identity.repository_id: must be a positive decimal GitHub repository ID",
@@ -86,6 +88,22 @@ func TestValidateRejectsInvalidListenPorts(t *testing.T) {
 				t.Errorf("Validate() error = %q, want a port error", err)
 			}
 		})
+	}
+}
+
+func TestValidateRejectsNonPositiveRequestTimeouts(t *testing.T) {
+	for _, timeout := range []time.Duration{0, -time.Second} {
+		configuration := validConfiguration()
+		configuration.Server.RequestTimeout = timeout
+
+		err := config.Validate(configuration)
+		if err == nil {
+			t.Fatal("Validate() error = nil, want a request timeout error")
+		}
+
+		if !strings.Contains(err.Error(), "server.request_timeout: must be a positive duration") {
+			t.Errorf("Validate() error = %q, want a request timeout error", err)
+		}
 	}
 }
 
@@ -207,7 +225,8 @@ func validConfiguration() config.Config {
 	return config.Config{
 		Version: 1,
 		Server: config.Server{
-			Listen: "127.0.0.1:8080",
+			Listen:         "127.0.0.1:8080",
+			RequestTimeout: 5 * time.Minute,
 		},
 		GitHub: config.GitHub{
 			Audience: "https://deploy.example.net",

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -19,7 +20,8 @@ type Config struct {
 
 // Server configures the Swarrow HTTP server.
 type Server struct {
-	Listen string `yaml:"listen"`
+	Listen         string        `yaml:"listen"`
+	RequestTimeout time.Duration `yaml:"request_timeout"`
 }
 
 // GitHub configures GitHub Actions token verification.

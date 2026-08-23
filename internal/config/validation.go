@@ -20,6 +20,9 @@ func Validate(configuration Config) error {
 	}
 
 	problems = append(problems, validateListenAddress(configuration.Server.Listen)...)
+	if configuration.Server.RequestTimeout <= 0 {
+		problems = append(problems, "server.request_timeout: must be a positive duration")
+	}
 	problems = append(problems, validateRequired("github.audience", configuration.GitHub.Audience)...)
 
 	if len(configuration.Deployments) == 0 {
