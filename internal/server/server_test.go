@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -70,6 +72,73 @@ func TestDurationWithGraceDoesNotOverflow(t *testing.T) {
 	if got := durationWithGrace(time.Minute, time.Second); got != 61*time.Second {
 		t.Errorf("durationWithGrace() = %v, want 61s", got)
 	}
+}
+
+func TestRestartReadinessLogsWarmupAndStopsWithServer(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	now := time.Date(2026, time.August, 16, 12, 0, 0, 0, time.UTC)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	stop := startRestartReadinessLog(ctx, logger, now.Add(time.Minute), now)
+	cancel()
+	stop()
+
+	logOutput := output.String()
+	if !strings.Contains(logOutput, `"msg":"deployment authentication warming up"`) ||
+		!strings.Contains(logOutput, `"ready_at":"2026-08-16T12:01:00Z"`) {
+		t.Errorf("logs = %q, want warm-up warning with ready time", logOutput)
+	}
+	if strings.Contains(logOutput, `"msg":"deployment authentication ready"`) {
+		t.Errorf("logs = %q, do not want readiness after shutdown", logOutput)
+	}
+}
+
+func TestRestartReadinessLogsWhenAlreadyReady(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	now := time.Date(2026, time.August, 16, 12, 1, 0, 0, time.UTC)
+
+	stop := startRestartReadinessLog(context.Background(), logger, now, now)
+	stop()
+
+	if !strings.Contains(output.String(), `"msg":"deployment authentication ready"`) {
+		t.Errorf("logs = %q, want readiness message", output.String())
+	}
+}
+
+func TestRestartReadinessLogsReadyTransition(t *testing.T) {
+	var output lockedBuffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	now := time.Now()
+
+	stop := startRestartReadinessLog(context.Background(), logger, now.Add(10*time.Millisecond), now)
+	defer stop()
+
+	deadline := time.Now().Add(time.Second)
+	for !strings.Contains(output.String(), `"msg":"deployment authentication ready"`) {
+		if time.Now().After(deadline) {
+			t.Fatalf("logs = %q, want readiness transition", output.String())
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+type lockedBuffer struct {
+	mu sync.Mutex
+	bytes.Buffer
+}
+
+func (buffer *lockedBuffer) Write(data []byte) (int, error) {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.Buffer.Write(data)
+}
+
+func (buffer *lockedBuffer) String() string {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.Buffer.String()
 }
 
 func discardLogger() *slog.Logger {

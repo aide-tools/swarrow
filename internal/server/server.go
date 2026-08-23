@@ -89,8 +89,38 @@ func Run(ctx context.Context, path string, version string, logger *slog.Logger) 
 		},
 	}
 
+	stopReadinessLog := startRestartReadinessLog(ctx, logger, verifier.ConservativeReadyAt(), time.Now())
+	defer stopReadinessLog()
 	logger.InfoContext(ctx, "server listening", "listen", configuration.Server.Listen)
 	return serve(ctx, httpServer, listener)
+}
+
+func startRestartReadinessLog(ctx context.Context, logger *slog.Logger, readyAt time.Time, now time.Time) func() {
+	delay := readyAt.Sub(now)
+	if delay <= 0 {
+		logger.InfoContext(ctx, "deployment authentication ready")
+		return func() {}
+	}
+
+	logger.WarnContext(ctx, "deployment authentication warming up", "ready_at", readyAt)
+	waitCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-waitCtx.Done():
+			return
+		case <-timer.C:
+			logger.InfoContext(waitCtx, "deployment authentication ready")
+		}
+	}()
+
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 func loadConfiguration(path string) (config.Config, error) {

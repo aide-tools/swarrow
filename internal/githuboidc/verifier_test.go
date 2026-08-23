@@ -239,6 +239,69 @@ func TestVerifierRejectsInvalidClaims(t *testing.T) {
 	}
 }
 
+func TestVerifierReportsRestartWarmup(t *testing.T) {
+	t.Parallel()
+
+	key := generateKey(t)
+	startedAt := time.Date(2026, time.August, 16, 12, 0, 0, 250_000_000, time.UTC)
+	now := startedAt.Add(10 * time.Second)
+	tests := map[string]struct {
+		issuedAt  time.Time
+		wantRetry time.Duration
+	}{
+		"token reaches cutoff first": {
+			issuedAt:  startedAt.Truncate(time.Second).Add(10 * time.Second),
+			wantRetry: 21 * time.Second,
+		},
+		"conservative window ends first": {
+			issuedAt:  startedAt.Add(-2 * time.Minute),
+			wantRetry: 50*time.Second + 750*time.Millisecond,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			claims := validRawClaims(startedAt, now)
+			claims["iat"] = test.issuedAt.Unix()
+			claims["nbf"] = claims["iat"]
+			verifier := staticVerifier(&key.PublicKey, testAudience, now, startedAt)
+
+			_, err := verifier.Verify(context.Background(), signToken(t, key, claims))
+			var warmup *RestartWarmupError
+			if !errors.As(err, &warmup) {
+				t.Fatalf("Verify() error = %v, want RestartWarmupError", err)
+			}
+			if warmup.RetryAfter() != test.wantRetry {
+				t.Errorf("RetryAfter() = %v, want %v", warmup.RetryAfter(), test.wantRetry)
+			}
+		})
+	}
+
+	verifier := staticVerifier(&key.PublicKey, testAudience, now, startedAt)
+	wantReadyAt := startedAt.Truncate(time.Second).Add(time.Second + 2*ClockSkew)
+	if !verifier.ConservativeReadyAt().Equal(wantReadyAt) {
+		t.Errorf("ConservativeReadyAt() = %v, want %v", verifier.ConservativeReadyAt(), wantReadyAt)
+	}
+}
+
+func TestVerifierRejectsPreCutoffTokenNormallyAfterWarmup(t *testing.T) {
+	t.Parallel()
+
+	key := generateKey(t)
+	startedAt := time.Date(2026, time.August, 16, 12, 0, 0, 250_000_000, time.UTC)
+	now := startedAt.Truncate(time.Second).Add(time.Second + 2*ClockSkew)
+	verifier := staticVerifier(&key.PublicKey, testAudience, now, startedAt)
+	claims := validRawClaims(startedAt, now)
+	claims["iat"] = verifier.restartCutoff.Add(-time.Second).Unix()
+	claims["nbf"] = claims["iat"]
+
+	_, err := verifier.Verify(context.Background(), signToken(t, key, claims))
+	var warmup *RestartWarmupError
+	if err == nil || errors.As(err, &warmup) {
+		t.Fatalf("Verify() error = %v, want non-retryable cutoff error", err)
+	}
+}
+
 func TestVerifierRejectsMissingRequiredClaims(t *testing.T) {
 	t.Parallel()
 

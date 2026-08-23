@@ -178,6 +178,31 @@ func TestDeploymentDoesNotExposeRejectedTokens(t *testing.T) {
 	}
 }
 
+func TestDeploymentReportsRestartWarmupAsRetryable(t *testing.T) {
+	deployer := &fakeDeployer{}
+	verifier := &fakeVerifier{verify: func(context.Context, string) (githuboidc.Claims, error) {
+		return githuboidc.Claims{}, retryableVerificationError{retryAfter: 1500 * time.Millisecond}
+	}}
+	handler := newHandler(t, verifier, deployer, time.Minute)
+	request := deploymentRequest(http.MethodPost, `{"digest":"`+canonicalDigest+`"}`)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", response.Code)
+	}
+	if response.Header().Get("Retry-After") != "2" {
+		t.Errorf("Retry-After = %q, want 2", response.Header().Get("Retry-After"))
+	}
+	if !strings.Contains(response.Body.String(), `"code":"authentication_warming_up"`) {
+		t.Errorf("body = %q, want warm-up error", response.Body.String())
+	}
+	if deployer.calls != 0 {
+		t.Errorf("Deploy() calls = %d, want 0", deployer.calls)
+	}
+}
+
 func TestDeploymentWritesStructuredAuditEventsWithoutCredentials(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
@@ -397,6 +422,18 @@ func completedOutcome() deploy.Outcome {
 type fakeVerifier struct {
 	calls  int
 	verify func(context.Context, string) (githuboidc.Claims, error)
+}
+
+type retryableVerificationError struct {
+	retryAfter time.Duration
+}
+
+func (err retryableVerificationError) Error() string {
+	return "restart warm-up"
+}
+
+func (err retryableVerificationError) RetryAfter() time.Duration {
+	return err.retryAfter
 }
 
 func (verifier *fakeVerifier) Verify(ctx context.Context, token string) (githuboidc.Claims, error) {
