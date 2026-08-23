@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -111,6 +112,14 @@ func (handler *handler) deployment(writer http.ResponseWriter, request *http.Req
 			audit.errorCode = code
 			return
 		}
+		var warmup retryableAuthenticationError
+		if errors.As(err, &warmup) {
+			writer.Header().Set("Retry-After", strconv.FormatInt(retryAfterSeconds(warmup.RetryAfter()), 10))
+			audit.status = http.StatusServiceUnavailable
+			audit.errorCode = "authentication_warming_up"
+			writeError(writer, http.StatusServiceUnavailable, "authentication_warming_up", "Deployment authentication is warming up; obtain a new token before retrying")
+			return
+		}
 		audit.status = http.StatusUnauthorized
 		audit.errorCode = "unauthorized"
 		writeError(writer, http.StatusUnauthorized, "unauthorized", "Valid Bearer authentication is required")
@@ -150,6 +159,18 @@ func (handler *handler) deployment(writer http.ResponseWriter, request *http.Req
 	audit.action = outcome.Action
 	audit.conclusion = outcome.Conclusion
 	audit.status, audit.errorCode = writeOutcome(writer, outcome)
+}
+
+type retryableAuthenticationError interface {
+	error
+	RetryAfter() time.Duration
+}
+
+func retryAfterSeconds(duration time.Duration) int64 {
+	if duration <= 0 {
+		return 1
+	}
+	return int64((duration + time.Second - 1) / time.Second)
 }
 
 func (handler *handler) notFound(writer http.ResponseWriter, _ *http.Request) {
