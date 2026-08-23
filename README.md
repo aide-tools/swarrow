@@ -3,7 +3,7 @@
 Swarrow is a small deployment relay for Docker Swarm. It lets an authorised GitHub Actions workflow update the image of one preconfigured service without giving the workflow SSH access or access to the Docker API.
 
 > [!WARNING]
-> Swarrow is being designed and is not ready for use. The security contract is documented before implementation so that its trust boundary can be reviewed explicitly.
+> Swarrow is pre-1.0. Its interfaces may change.
 
 ## Motivation
 
