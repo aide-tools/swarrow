@@ -40,7 +40,7 @@ The `repository_id`, `workflow_ref` and `environment` values apply the exact mat
 
 The required `request_timeout` bounds the complete request from receipt through authorisation, queueing, Docker mutation and rollout observation. Five minutes is the intended initial value. A reverse proxy in front of Swarrow must permit a request to remain open for at least this duration.
 
-The caller does not submit the `service` or `image` values. A request is expected to identify the configured deployment and supply only an immutable digest:
+The caller does not submit the `service` or `image` values. A request identifies the configured deployment and supplies only an immutable digest:
 
 ```http
 POST /v1/deployments/example-web
@@ -59,6 +59,8 @@ ghcr.io/example/example-web@sha256:0123456789abcdef0123456789abcdef0123456789abc
 ```
 
 The configured `target.image` is only a repository name and must not contain a tag or digest. Each deployment request must instead supply a canonical SHA-256 digest in the form `sha256:` followed by 64 lowercase hexadecimal characters. Tags such as `example-123abc`, semantic versions and `latest` are not accepted as release identifiers; a tag remains mutable even when its name is derived from a commit. Swarrow combines the configured repository with the supplied digest and does not ask Docker to resolve a tag through the registry.
+
+The [HTTP API](http-api.md) defines request validation, responses and status codes.
 
 ## Validation
 
