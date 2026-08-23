@@ -14,6 +14,8 @@ The server validates the complete file and discovers GitHub's OpenID Connect pro
 
 Swarrow emits JSON operational and deployment audit logs to standard error. Deployment events record the requested deployment and digest, verified repository identity, workflow ref, GitHub Actions environment, HTTP status and established lifecycle result. They do not record the bearer token, its `jti`, Docker service identifiers, service specifications or raw Docker errors.
 
+After a restart, Swarrow logs a warning with the conservative time when freshly issued GitHub tokens are guaranteed to pass its replay-protection cutoff. The HTTP listener and `/healthz` remain available during this warm-up period, and Swarrow logs again when deployment authentication reaches that ready time.
+
 ## Health
 
 `GET /healthz` returns `200 OK` while the HTTP process is available:
@@ -76,9 +78,12 @@ A completed response has this shape:
 | `409 Conflict` | The rollout was superseded, or the service changed concurrently before Swarrow could update it |
 | `429 Too Many Requests` | A bounded replay cache or service queue has no capacity for the request |
 | `502 Bad Gateway` | Swarm reported a failed or rolled-back rollout, or Docker could not complete the operation |
+| `503 Service Unavailable` | An otherwise valid token was issued too early after this Swarrow process started |
 | `504 Gateway Timeout` | The configured request timeout expired before Swarrow could confirm that Docker selected the requested image |
 
-Error responses contain a stable code and a generic message. When Swarrow established part of a deployment lifecycle before an error, the response may also contain its action and last observed state. Authentication and internal Docker errors are not returned verbatim.
+The restart warm-up response uses the stable code `authentication_warming_up` and includes `Retry-After` in whole seconds. The workflow must wait, obtain a new GitHub OIDC token and then retry; resending the same token cannot change its signed issue time. Other authentication failures remain `401 Unauthorized`, and a token below the restart cutoff is no longer presented as retryable after the conservative ready time.
+
+Other error responses contain a stable code and a generic message. When Swarrow established part of a deployment lifecycle before an error, the response may also contain its action and last observed state. Authentication and internal Docker errors are not returned verbatim.
 
 ## Network boundary
 
