@@ -102,11 +102,11 @@ Authentication discovers GitHub's signing keys through its fixed issuer, accepts
 | `repository_id` | GitHub's stable numeric identity for the application repository | Exactly matches the configured repository ID |
 | `workflow_ref` | The caller workflow file and Git ref | Exactly matches the configured workflow path and ref |
 | `environment` | The GitHub environment assigned to the job | Exactly matches the configured environment name |
-| `job_workflow_ref` | The second workflow that defines a job delegated to a reusable workflow | Absent |
+| `job_workflow_ref` | The workflow file that defines the running job when GitHub supplies this additional claim | Absent or identical to `workflow_ref` |
 
 The `repository_id`, `workflow_ref` and `environment` constraints are mandatory and non-empty for every deployment.
 
-A direct workflow defines the deployment job in the configured workflow file. A reusable workflow instead delegates that job to a second workflow, which GitHub identifies through `job_workflow_ref` while retaining information about the caller. Supporting both identities requires an explicit policy for the caller and called workflow. The initial version avoids that ambiguity by accepting direct workflows only and rejecting any token containing `job_workflow_ref`.
+A direct workflow defines the deployment job in the configured workflow file. GitHub may identify that same file through both `workflow_ref` and `job_workflow_ref`; equal values preserve the direct-workflow identity and are accepted. A reusable workflow instead delegates the job to a second workflow, producing a different `job_workflow_ref`. Supporting that second identity requires an explicit policy for the caller and called workflow, so the initial version rejects differing values.
 
 ### Why other claims are not used
 
