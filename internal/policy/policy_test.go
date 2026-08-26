@@ -40,6 +40,18 @@ func TestPolicyIgnoresReadableRepositoryName(t *testing.T) {
 	}
 }
 
+func TestPolicyAllowsMatchingJobWorkflowRef(t *testing.T) {
+	t.Parallel()
+
+	claims := testClaims()
+	claims.JobWorkflowRef = claims.WorkflowRef
+	claims.JobWorkflowRefPresent = true
+
+	if _, err := New(testConfiguration()).Authorise("example-web", claims); err != nil {
+		t.Fatalf("Authorise() error = %v", err)
+	}
+}
+
 func TestPolicyAllowsOneIdentitySeveralDeployments(t *testing.T) {
 	t.Parallel()
 
@@ -85,8 +97,9 @@ func TestPolicyDeniesIdentityMismatch(t *testing.T) {
 			},
 		},
 		{
-			name: "reusable workflow",
+			name: "different reusable workflow",
 			mutate: func(claims *githuboidc.Claims) {
+				claims.JobWorkflowRef = "example/shared/.github/workflows/deploy.yml@refs/heads/main"
 				claims.JobWorkflowRefPresent = true
 			},
 		},

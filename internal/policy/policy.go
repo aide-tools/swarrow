@@ -48,8 +48,12 @@ func (policy *Policy) Authorise(name string, claims githuboidc.Claims) (Deployme
 }
 
 func matches(identity config.Identity, claims githuboidc.Claims) bool {
-	return !claims.JobWorkflowRefPresent &&
+	return matchesDirectWorkflow(claims) &&
 		claims.RepositoryID == identity.RepositoryID &&
 		claims.WorkflowRef == identity.WorkflowRef &&
 		claims.Environment == identity.Environment
+}
+
+func matchesDirectWorkflow(claims githuboidc.Claims) bool {
+	return !claims.JobWorkflowRefPresent || claims.JobWorkflowRef == claims.WorkflowRef
 }
