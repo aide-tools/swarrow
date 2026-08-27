@@ -69,7 +69,9 @@ Policy must match the immutable `repository_id`, exact `workflow_ref` and exact 
 
 A reusable workflow token describes the calling workflow through the standard workflow claims and the called workflow through `job_workflow_ref`. Treating those identities as interchangeable could authorise a caller or shared workflow that the operator did not intend.
 
-GitHub may also supply `job_workflow_ref` for a direct job with the same value as `workflow_ref`. The initial version must accept an absent or equal value and reject a different value. Supporting a different reusable workflow requires a separate policy model and security review.
+GitHub may also supply `job_workflow_ref` for a direct job with the same value as `workflow_ref`. When no reusable workflow is configured, Swarrow must accept an absent or equal value and reject a different value.
+
+When policy configures a reusable workflow, Swarrow must require `job_workflow_ref` to be present and exactly equal to that deployment's override or the shared GitHub default. It must continue matching the caller's immutable repository ID, workflow ref and environment independently. A trusted shared workflow must not authorise an unconfigured caller, and a trusted caller must not substitute another job-defining workflow.
 
 ### Cross-service or cross-image deployment
 

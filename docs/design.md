@@ -102,11 +102,13 @@ Authentication discovers GitHub's signing keys through its fixed issuer, accepts
 | `repository_id` | GitHub's stable numeric identity for the application repository | Exactly matches the configured repository ID |
 | `workflow_ref` | The caller workflow file and Git ref | Exactly matches the configured workflow path and ref |
 | `environment` | The GitHub environment assigned to the job | Exactly matches the configured environment name |
-| `job_workflow_ref` | The workflow file that defines the running job when GitHub supplies this additional claim | Absent or identical to `workflow_ref` |
+| `job_workflow_ref` | The workflow file that defines the running job when GitHub supplies this additional claim | Exactly matches the deployment override or shared default when configured; otherwise absent or identical to `workflow_ref` |
 
 The `repository_id`, `workflow_ref` and `environment` constraints are mandatory and non-empty for every deployment.
 
-A direct workflow defines the deployment job in the configured workflow file. GitHub may identify that same file through both `workflow_ref` and `job_workflow_ref`; equal values preserve the direct-workflow identity and are accepted. A reusable workflow instead delegates the job to a second workflow, producing a different `job_workflow_ref`. Supporting that second identity requires an explicit policy for the caller and called workflow, so the initial version rejects differing values.
+A direct workflow defines the deployment job in the configured workflow file. GitHub may identify that same file through both `workflow_ref` and `job_workflow_ref`; when no reusable workflow is configured, absent and equal values preserve the direct-workflow identity and are accepted.
+
+A reusable workflow delegates the job to a second workflow, producing a different `job_workflow_ref`. Swarrow accepts that delegation only when the complete claim exactly matches the deployment identity's configured `job_workflow_ref` or, when the deployment omits one, the top-level GitHub default. The caller's `repository_id`, `workflow_ref` and `environment` must still match the deployment identity, so trusting a shared workflow does not authorise another application workflow implicitly.
 
 ### Why other claims are not used
 
@@ -124,7 +126,7 @@ The implementation must preserve these properties:
 2. A caller cannot select or override an image repository directly.
 3. Every accepted image is identified by an OCI digest, not only a mutable tag.
 4. Authorisation uses immutable repository identity in addition to readable names.
-5. The submitted workflow identity must match the configured immutable repository ID, direct workflow ref and environment.
+5. The submitted workflow identity must match the configured immutable repository ID, caller workflow ref, job workflow ref policy and environment.
 6. A service update changes only its container image. All other fields are copied from the inspected service specification.
 7. Concurrent changes are not overwritten silently. A stale service version must fail and be inspected again.
 8. Credentials and complete identity tokens are never written to logs.
@@ -136,7 +138,7 @@ The implementation must preserve these properties:
 The first useful version is expected to provide:
 
 - GitHub Actions OpenID Connect authentication
-- Direct GitHub Actions workflow identity
+- Direct and explicitly configured reusable GitHub Actions workflow identity
 - File-based deployment policy
 - One fixed repository and service per deployment policy
 - Digest-only image updates

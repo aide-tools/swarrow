@@ -15,6 +15,7 @@ server:
 
 github:
   audience: https://deploy.example.net
+  job_workflow_ref: example/swarrow-deploy/.github/workflows/deploy.yml@refs/tags/v1
 
 deployments:
   - name: example-web
@@ -36,7 +37,9 @@ The `example-web` deployment grants one capability:
 
 > The configured GitHub repository, running the configured workflow on the configured environment, may update `example_web` to an immutable digest from `ghcr.io/example/example-web`.
 
-The `repository_id`, `workflow_ref` and `environment` values apply the exact matches required by the [GitHub identity policy](design.md#github-identity-policy). Here, `environment` is the GitHub Actions environment assigned to the job, not an operating-system variable or part of the Swarm service configuration. The readable `repository` value exists only to make diagnostics recognisable to an operator.
+The `repository_id`, `workflow_ref`, `job_workflow_ref` and `environment` values apply the exact matches required by the [GitHub identity policy](design.md#github-identity-policy). Here, `workflow_ref` identifies the application workflow that called the shared deployment workflow. The top-level `github.job_workflow_ref` identifies that shared workflow and applies to every deployment unless an identity supplies its own `job_workflow_ref`. The configured value must match GitHub's complete claim, including its Git ref.
+
+When neither location configures `job_workflow_ref`, Swarrow accepts only a job defined directly in the application workflow. This preserves the direct-workflow policy used by configurations written before reusable workflow support. The `environment` is the GitHub Actions environment assigned to the job, not an operating-system variable or part of the Swarm service configuration. The readable `repository` value exists only to make diagnostics recognisable to an operator.
 
 The required `request_timeout` bounds the complete request from receipt through authorisation, queueing, Docker mutation and rollout observation. Five minutes is the intended initial value. A reverse proxy in front of Swarrow must permit a request to remain open for at least this duration.
 
@@ -72,14 +75,15 @@ Swarrow validates configuration before making it available as policy. It rejects
 - `server.listen` is not a `host:port` address with a numeric port between 1 and 65535
 - `server.request_timeout` is not a positive Go-style duration such as `5m`
 - `github.audience` is empty
+- An optional `github.job_workflow_ref` or deployment `identity.job_workflow_ref` has leading or trailing whitespace
 - No deployments are defined
 - A deployment omits its name, `repository_id`, `workflow_ref`, `environment`, service or image
 - A `repository_id` is not the canonical positive decimal form of a GitHub repository ID
 - Deployment names or concrete Swarm service targets are duplicated
 - A target image is not a valid container image repository, or includes a tag or digest
-- Configuration attempts to select another issuer or enable reusable workflows
+- Configuration attempts to select another issuer
 
-The readable `repository` field is optional and used only for diagnostics. The same workflow identity may appear in several deployments when the operator deliberately grants it access to several targets.
+The readable `repository` field is optional and used only for diagnostics. A deployment-level `job_workflow_ref` is also optional and overrides the top-level default when the operator deliberately authorises another shared workflow for that deployment. The same workflow identity may appear in several deployments when the operator deliberately grants it access to several targets.
 
 Runtime policy mutation and configuration overlays are not part of the first version.
 
