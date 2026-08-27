@@ -26,7 +26,8 @@ type Server struct {
 
 // GitHub configures GitHub Actions token verification.
 type GitHub struct {
-	Audience string `yaml:"audience"`
+	Audience       string `yaml:"audience"`
+	JobWorkflowRef string `yaml:"job_workflow_ref"`
 }
 
 // Deployment grants one workflow identity access to one deployment target.
@@ -38,10 +39,11 @@ type Deployment struct {
 
 // Identity identifies one authorised GitHub Actions workflow.
 type Identity struct {
-	RepositoryID string `yaml:"repository_id"`
-	Repository   string `yaml:"repository"`
-	WorkflowRef  string `yaml:"workflow_ref"`
-	Environment  string `yaml:"environment"`
+	RepositoryID   string `yaml:"repository_id"`
+	Repository     string `yaml:"repository"`
+	WorkflowRef    string `yaml:"workflow_ref"`
+	JobWorkflowRef string `yaml:"job_workflow_ref"`
+	Environment    string `yaml:"environment"`
 }
 
 // Target identifies the existing Swarm service and permitted image repository.

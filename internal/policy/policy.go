@@ -27,6 +27,9 @@ type Policy struct {
 func New(configuration config.Config) *Policy {
 	deployments := make(map[string]config.Deployment, len(configuration.Deployments))
 	for _, deployment := range configuration.Deployments {
+		if deployment.Identity.JobWorkflowRef == "" {
+			deployment.Identity.JobWorkflowRef = configuration.GitHub.JobWorkflowRef
+		}
 		deployments[deployment.Name] = deployment
 	}
 
@@ -48,12 +51,16 @@ func (policy *Policy) Authorise(name string, claims githuboidc.Claims) (Deployme
 }
 
 func matches(identity config.Identity, claims githuboidc.Claims) bool {
-	return matchesDirectWorkflow(claims) &&
+	return matchesJobWorkflow(identity.JobWorkflowRef, claims) &&
 		claims.RepositoryID == identity.RepositoryID &&
 		claims.WorkflowRef == identity.WorkflowRef &&
 		claims.Environment == identity.Environment
 }
 
-func matchesDirectWorkflow(claims githuboidc.Claims) bool {
+func matchesJobWorkflow(expected string, claims githuboidc.Claims) bool {
+	if expected != "" {
+		return claims.JobWorkflowRefPresent && claims.JobWorkflowRef == expected
+	}
+
 	return !claims.JobWorkflowRefPresent || claims.JobWorkflowRef == claims.WorkflowRef
 }

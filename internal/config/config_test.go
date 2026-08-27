@@ -17,12 +17,14 @@ server:
   request_timeout: 5m
 github:
   audience: https://deploy.example.net
+  job_workflow_ref: example/swarrow-deploy/.github/workflows/deploy.yml@refs/tags/v1
 deployments:
   - name: example-web
     identity:
       repository_id: "123456789"
       repository: example/example-web
       workflow_ref: example/example-web/.github/workflows/deploy.yml@refs/heads/main
+      job_workflow_ref: example/other-deploy/.github/workflows/deploy.yml@refs/tags/v2
       environment: production
     target:
       service: example_web
@@ -41,16 +43,18 @@ deployments:
 			RequestTimeout: 5 * time.Minute,
 		},
 		GitHub: config.GitHub{
-			Audience: "https://deploy.example.net",
+			Audience:       "https://deploy.example.net",
+			JobWorkflowRef: "example/swarrow-deploy/.github/workflows/deploy.yml@refs/tags/v1",
 		},
 		Deployments: []config.Deployment{
 			{
 				Name: "example-web",
 				Identity: config.Identity{
-					RepositoryID: "123456789",
-					Repository:   "example/example-web",
-					WorkflowRef:  "example/example-web/.github/workflows/deploy.yml@refs/heads/main",
-					Environment:  "production",
+					RepositoryID:   "123456789",
+					Repository:     "example/example-web",
+					WorkflowRef:    "example/example-web/.github/workflows/deploy.yml@refs/heads/main",
+					JobWorkflowRef: "example/other-deploy/.github/workflows/deploy.yml@refs/tags/v2",
+					Environment:    "production",
 				},
 				Target: config.Target{
 					Service: "example_web",
