@@ -24,6 +24,7 @@ func Validate(configuration Config) error {
 		problems = append(problems, "server.request_timeout: must be a positive duration")
 	}
 	problems = append(problems, validateRequired("github.audience", configuration.GitHub.Audience)...)
+	problems = append(problems, validateOptional("github.job_workflow_ref", configuration.GitHub.JobWorkflowRef)...)
 
 	if len(configuration.Deployments) == 0 {
 		problems = append(problems, "deployments: must contain at least one deployment")
@@ -39,6 +40,7 @@ func Validate(configuration Config) error {
 		problems = append(problems, validateRepositoryID(path+".identity.repository_id", deployment.Identity.RepositoryID)...)
 		problems = append(problems, validateOptional(path+".identity.repository", deployment.Identity.Repository)...)
 		problems = append(problems, validateRequired(path+".identity.workflow_ref", deployment.Identity.WorkflowRef)...)
+		problems = append(problems, validateOptional(path+".identity.job_workflow_ref", deployment.Identity.JobWorkflowRef)...)
 		problems = append(problems, validateRequired(path+".identity.environment", deployment.Identity.Environment)...)
 		problems = append(problems, validateRequired(path+".target.service", deployment.Target.Service)...)
 		problems = append(problems, validateImageRepository(path+".target.image", deployment.Target.Image)...)

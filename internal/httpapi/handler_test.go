@@ -207,10 +207,12 @@ func TestDeploymentWritesStructuredAuditEventsWithoutCredentials(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
 	claims := githuboidc.Claims{
-		TokenID:      "secret-token-id",
-		RepositoryID: "123456789",
-		WorkflowRef:  "example/example/.github/workflows/deploy.yml@refs/heads/main",
-		Environment:  "production",
+		TokenID:               "secret-token-id",
+		RepositoryID:          "123456789",
+		WorkflowRef:           "example/example/.github/workflows/deploy.yml@refs/heads/main",
+		JobWorkflowRef:        "example/swarrow-deploy/.github/workflows/deploy.yml@refs/tags/v1",
+		JobWorkflowRefPresent: true,
+		Environment:           "production",
 	}
 	handler, err := httpapi.New(
 		&fakeVerifier{verify: func(context.Context, string) (githuboidc.Claims, error) { return claims, nil }},
@@ -232,6 +234,7 @@ func TestDeploymentWritesStructuredAuditEventsWithoutCredentials(t *testing.T) {
 		`"status":200`,
 		`"authenticated":true`,
 		`"repository_id":"123456789"`,
+		`"job_workflow_ref":"example/swarrow-deploy/.github/workflows/deploy.yml@refs/tags/v1"`,
 		`"environment":"production"`,
 		`"digest":"` + canonicalDigest + `"`,
 		`"action":"updated"`,

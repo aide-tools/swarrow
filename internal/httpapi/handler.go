@@ -128,6 +128,9 @@ func (handler *handler) deployment(writer http.ResponseWriter, request *http.Req
 	audit.authenticated = true
 	audit.repositoryID = claims.RepositoryID
 	audit.workflowRef = claims.WorkflowRef
+	if claims.JobWorkflowRefPresent {
+		audit.jobWorkflowRef = claims.JobWorkflowRef
+	}
 	audit.environment = claims.Environment
 
 	deploymentRequest, err := decodeDeploymentRequest(writer, request)
@@ -362,18 +365,19 @@ func writeContextError(writer http.ResponseWriter, ctx context.Context) (int, st
 }
 
 type deploymentAudit struct {
-	method        string
-	deployment    string
-	status        int
-	errorCode     string
-	authenticated bool
-	repositoryID  string
-	workflowRef   string
-	environment   string
-	digest        string
-	action        deploy.Action
-	conclusion    swarm.Conclusion
-	startedAt     time.Time
+	method         string
+	deployment     string
+	status         int
+	errorCode      string
+	authenticated  bool
+	repositoryID   string
+	workflowRef    string
+	jobWorkflowRef string
+	environment    string
+	digest         string
+	action         deploy.Action
+	conclusion     swarm.Conclusion
+	startedAt      time.Time
 }
 
 func (handler *handler) writeAudit(ctx context.Context, audit deploymentAudit) {
@@ -394,6 +398,9 @@ func (handler *handler) writeAudit(ctx context.Context, audit deploymentAudit) {
 			"workflow_ref", audit.workflowRef,
 			"environment", audit.environment,
 		)
+		if audit.jobWorkflowRef != "" {
+			attributes = append(attributes, "job_workflow_ref", audit.jobWorkflowRef)
+		}
 	}
 	if audit.digest != "" {
 		attributes = append(attributes, "digest", audit.digest)

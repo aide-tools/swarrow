@@ -52,6 +52,60 @@ func TestPolicyAllowsMatchingJobWorkflowRef(t *testing.T) {
 	}
 }
 
+func TestPolicyAllowsConfiguredReusableWorkflow(t *testing.T) {
+	t.Parallel()
+
+	configuration := testConfiguration()
+	configuration.GitHub.JobWorkflowRef = "example/swarrow-deploy/.github/workflows/deploy.yml@refs/tags/v1"
+	claims := testClaims()
+	claims.JobWorkflowRef = configuration.GitHub.JobWorkflowRef
+	claims.JobWorkflowRefPresent = true
+
+	if _, err := New(configuration).Authorise("example-web", claims); err != nil {
+		t.Fatalf("Authorise() error = %v", err)
+	}
+}
+
+func TestPolicyDeploymentJobWorkflowRefOverridesDefault(t *testing.T) {
+	t.Parallel()
+
+	configuration := testConfiguration()
+	configuration.GitHub.JobWorkflowRef = "example/swarrow-deploy/.github/workflows/deploy.yml@refs/tags/v1"
+	configuration.Deployments[0].Identity.JobWorkflowRef = "example/other-deploy/.github/workflows/deploy.yml@refs/tags/v2"
+	claims := testClaims()
+	claims.JobWorkflowRef = configuration.Deployments[0].Identity.JobWorkflowRef
+	claims.JobWorkflowRefPresent = true
+
+	if _, err := New(configuration).Authorise("example-web", claims); err != nil {
+		t.Fatalf("Authorise() error = %v", err)
+	}
+}
+
+func TestPolicyConfiguredReusableWorkflowRequiresExactPresentClaim(t *testing.T) {
+	t.Parallel()
+
+	configuration := testConfiguration()
+	configuration.GitHub.JobWorkflowRef = "example/swarrow-deploy/.github/workflows/deploy.yml@refs/tags/v1"
+
+	tests := map[string]func(*githuboidc.Claims){
+		"absent": func(claims *githuboidc.Claims) {},
+		"different": func(claims *githuboidc.Claims) {
+			claims.JobWorkflowRef = "example/other/.github/workflows/deploy.yml@refs/tags/v1"
+			claims.JobWorkflowRefPresent = true
+		},
+	}
+
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			claims := testClaims()
+			mutate(&claims)
+			assertDenied(t, New(configuration), "example-web", claims)
+		})
+	}
+}
+
 func TestPolicyAllowsOneIdentitySeveralDeployments(t *testing.T) {
 	t.Parallel()
 

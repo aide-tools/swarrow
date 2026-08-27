@@ -73,6 +73,33 @@ func TestValidateRequiresDeployment(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsWhitespaceInOptionalJobWorkflowRefs(t *testing.T) {
+	tests := map[string]func(*config.Config){
+		"global default": func(configuration *config.Config) {
+			configuration.GitHub.JobWorkflowRef = " example/swarrow-deploy/.github/workflows/deploy.yml@refs/tags/v1"
+		},
+		"deployment override": func(configuration *config.Config) {
+			configuration.Deployments[0].Identity.JobWorkflowRef = "example/other/.github/workflows/deploy.yml@refs/tags/v1 "
+		},
+	}
+
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			configuration := validConfiguration()
+			mutate(&configuration)
+
+			err := config.Validate(configuration)
+			if err == nil {
+				t.Fatal("Validate() error = nil, want a whitespace error")
+			}
+
+			if !strings.Contains(err.Error(), "job_workflow_ref: must not have leading or trailing whitespace") {
+				t.Errorf("Validate() error = %q, want a job workflow ref whitespace error", err)
+			}
+		})
+	}
+}
+
 func TestValidateRejectsInvalidListenPorts(t *testing.T) {
 	for _, address := range []string{"127.0.0.1:0", "127.0.0.1:65536", "127.0.0.1:http"} {
 		t.Run(address, func(t *testing.T) {
