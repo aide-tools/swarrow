@@ -13,17 +13,11 @@ The usual automation options grant considerably more authority than that task re
 
 Swarrow is intended to provide one narrow handoff:
 
-```text
-GitHub Actions workflow
-        │ authenticated deployment request
-        ▼
-     Swarrow
-        │ preconfigured service and image repository
-        ▼
-Docker Swarm service
-```
+![A GitHub Actions job supplies signed identity and an immutable image digest. Swarrow verifies the identity against local policy and updates only the configured Docker Swarm service image.](docs/assets/deployment-handoff.svg)
 
 The workflow supplies an immutable image digest. Swarrow determines whether the workflow may use that deployment target, constructs the approved image reference and updates the existing service.
+
+For the broader motivation behind these boundaries, read [Swarrow: The Deployment Capability I Actually Needed](https://kingori.co/swarrow-the-deployment-capability-i-actually-needed/).
 
 ## Security boundary
 
@@ -45,8 +39,9 @@ The initial design is documented in:
 - [Threat model](docs/threat-model.md)
 - [Configuration](docs/configuration.md)
 - [HTTP API](docs/http-api.md)
+- [Deployment](docs/deployment.md)
 
-The design and threat model describe the intended contract. The configuration and HTTP API documents describe the implemented initial interfaces. None of these interfaces is stable yet.
+The design and threat model describe the intended contract. The configuration, HTTP API and deployment documents describe the implemented initial interfaces. None of these interfaces is stable yet.
 
 ## Development
 
