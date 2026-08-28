@@ -135,7 +135,7 @@ The implementation must preserve these properties:
 
 ## Initial scope
 
-The first useful version is expected to provide:
+The initial version provides:
 
 - GitHub Actions OpenID Connect authentication
 - Direct and explicitly configured reusable GitHub Actions workflow identity

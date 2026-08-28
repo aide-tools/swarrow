@@ -101,7 +101,7 @@ This is residual risk inherent in delegating image selection. Operators must con
 
 An attacker may flood authentication, registry or deployment operations, or an authorised workflow may repeatedly trigger rollouts.
 
-The service should use request limits, timeouts, bounded concurrency and per-deployment rate controls. Docker and registry failures must not exhaust unbounded goroutines or memory.
+Swarrow must use bounded request bodies, timeouts, replay storage and per-service queues. The operator-facing reverse proxy must apply connection and request-rate limits before traffic reaches the process. Docker and registry failures must not exhaust unbounded goroutines or memory.
 
 ### Controller compromise
 

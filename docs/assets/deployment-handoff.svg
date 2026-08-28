@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title description">
+  <title id="title">Swarrow deployment handoff</title>
+  <desc id="description">A GitHub Actions job supplies signed identity and an immutable digest. Swarrow verifies the token and applies local policy. A Docker Swarm service specification shows only its image changing while its networks, secrets, mounts and placement remain unchanged.</desc>
+
+  <defs>
+    <style>
+      text { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .heading { fill: #f1ece5; font-size: 18px; font-weight: 650; letter-spacing: .04em; }
+      .eyebrow { fill: #a7b0b9; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; font-weight: 650; letter-spacing: .12em; }
+      .label { fill: #a7b0b9; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+      .value { fill: #f1ece5; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+      .small { fill: #a7b0b9; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10px; letter-spacing: .04em; }
+      .panel { fill: #242a30; stroke: #7d8893; stroke-width: 1.25; }
+      .rule { stroke: #363e46; stroke-width: 1; }
+      .relay-text { fill: #e1846f; }
+      .relay-stroke { stroke: #e1846f; }
+    </style>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V24" fill="none" stroke="#363e46" stroke-width="1"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 10 5 0 10Z" fill="#7d8893"/>
+    </marker>
+    <marker id="arrow-coral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 10 5 0 10Z" fill="#e1846f"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="720" fill="#2b3137"/>
+  <rect width="1200" height="720" fill="url(#grid)" opacity=".52"/>
+
+  <g transform="translate(0 27)">
+  <g transform="translate(392 34)">
+    <text class="eyebrow" x="0" y="0">LOCAL POLICY · DEPLOYMENT example-web</text>
+    <rect class="panel" x="0" y="18" width="356" height="160"/>
+    <line class="rule" x1="0" y1="50" x2="356" y2="50"/>
+    <line class="rule" x1="0" y1="82" x2="356" y2="82"/>
+    <line class="rule" x1="0" y1="114" x2="356" y2="114"/>
+    <line class="rule" x1="0" y1="146" x2="356" y2="146"/>
+    <text class="label" x="18" y="40">repository_id</text>
+    <text class="value" x="148" y="40">1029384756</text>
+    <text class="label" x="18" y="72">workflow</text>
+    <text class="value" x="148" y="72">deploy.yml@main</text>
+    <text class="label" x="18" y="104">environment</text>
+    <text class="value" x="148" y="104">production</text>
+    <text class="label" x="18" y="136">service</text>
+    <text class="value" x="148" y="136">example_web</text>
+    <text class="label" x="18" y="168">image repo</text>
+    <text class="value" x="148" y="168">ghcr.io/example/web</text>
+  </g>
+
+  <path d="M570 216V304" fill="none" stroke="#7d8893" stroke-width="1.5" stroke-dasharray="4 5" marker-end="url(#arrow)"/>
+  <text class="small" x="584" y="246">CONSTRAINS</text>
+
+  <g transform="translate(52 286)">
+    <text class="eyebrow" x="0" y="354">CALLER</text>
+    <rect class="panel" x="0" y="18" width="288" height="310"/>
+    <text class="heading" x="20" y="54">GitHub Actions Job</text>
+    <text class="small" x="20" y="78">SIGNED IDENTITY TOKEN</text>
+    <line class="rule" x1="20" y1="94" x2="268" y2="94"/>
+
+    <text class="label" x="20" y="124">repository_id</text>
+    <text class="value" x="148" y="124">1029384756</text>
+    <text class="label" x="20" y="154">workflow_ref</text>
+    <text class="value" x="148" y="154">deploy.yml@main</text>
+    <text class="label" x="20" y="184">environment</text>
+    <text class="value" x="148" y="184">production</text>
+
+    <rect x="20" y="214" width="248" height="76" fill="#20262c" stroke="#e1846f" stroke-width="1.5"/>
+    <text class="small" x="36" y="238" fill="#e1846f">IMMUTABLE IMAGE DIGEST</text>
+    <text x="36" y="267" fill="#f0a08d" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14">sha256:7fa4…91c2</text>
+  </g>
+
+  <g transform="translate(486 286)">
+    <text class="eyebrow" x="84" y="354" text-anchor="middle">NARROW RELAY</text>
+    <rect x="0" y="18" width="168" height="310" fill="#242a30" stroke="#7d8893" stroke-width="1.25"/>
+    <text class="heading relay-text" x="84" y="58" text-anchor="middle">Swarrow</text>
+    <line x1="22" y1="78" x2="146" y2="78" stroke="#e1846f" opacity=".45"/>
+
+    <circle class="relay-stroke" cx="84" cy="112" r="20" fill="none" stroke-width="1.5"/>
+    <path class="relay-stroke" d="m75 112 6 6 13-14" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="small relay-text" x="84" y="154" text-anchor="middle">VERIFY TOKEN</text>
+
+    <path d="M84 168v16" stroke="#e1846f" stroke-width="1.25" marker-end="url(#arrow-coral)"/>
+
+    <rect class="relay-stroke" x="64" y="190" width="40" height="38" fill="none" stroke-width="1.5"/>
+    <path class="relay-stroke" d="M73 201h22M73 210h16M73 219h19" stroke-width="1.5"/>
+    <text class="small relay-text" x="84" y="248" text-anchor="middle">MATCH POLICY</text>
+
+    <path d="M84 260v20" stroke="#e1846f" stroke-width="1.25" marker-end="url(#arrow-coral)"/>
+    <text x="84" y="305" fill="#f0a08d" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" text-anchor="middle">IMAGE FIELD ONLY</text>
+  </g>
+
+  <path d="M340 446H486" fill="none" stroke="#7d8893" stroke-width="1.75" marker-end="url(#arrow)"/>
+  <text class="small" x="413" y="430" text-anchor="middle">IDENTITY + DIGEST</text>
+
+  <path d="M654 446H800" fill="none" stroke="#7d8893" stroke-width="1.75" marker-end="url(#arrow)"/>
+  <text class="small" x="727" y="430" text-anchor="middle">IMAGE-ONLY UPDATE</text>
+
+  <g transform="translate(800 286)">
+    <text class="eyebrow" x="0" y="354">EXISTING INFRASTRUCTURE</text>
+    <rect class="panel" x="0" y="18" width="348" height="310"/>
+    <text class="heading" x="20" y="54">Swarm Service (example_web)</text>
+    <text class="small" x="20" y="78">SERVICE SPECIFICATION</text>
+
+    <rect x="16" y="94" width="316" height="54" fill="#33272a" stroke="#e1846f" stroke-width="1.5"/>
+    <text class="label" x="30" y="117" fill="#e1846f">image</text>
+    <text x="98" y="117" fill="#f0a08d" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12">ghcr.io/example/web@</text>
+    <text x="98" y="137" fill="#f0a08d" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12">sha256:7fa4…91c2</text>
+
+    <line class="rule" x1="16" y1="164" x2="332" y2="164"/>
+    <line class="rule" x1="16" y1="202" x2="332" y2="202"/>
+    <line class="rule" x1="16" y1="240" x2="332" y2="240"/>
+    <line class="rule" x1="16" y1="278" x2="332" y2="278"/>
+
+    <text class="label" x="30" y="188">networks</text>
+    <text class="value" x="126" y="188">frontend</text>
+    <text class="small" x="318" y="188" text-anchor="end">UNCHANGED</text>
+    <text class="label" x="30" y="226">secrets</text>
+    <text class="value" x="126" y="226">db_password</text>
+    <text class="small" x="318" y="226" text-anchor="end">UNCHANGED</text>
+    <text class="label" x="30" y="264">mounts</text>
+    <text class="value" x="126" y="264">/data</text>
+    <text class="small" x="318" y="264" text-anchor="end">UNCHANGED</text>
+    <text class="label" x="30" y="302">placement</text>
+    <text class="value" x="126" y="302">node.role</text>
+    <text class="small" x="318" y="302" text-anchor="end">UNCHANGED</text>
+  </g>
+  </g>
+</svg>
