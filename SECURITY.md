@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Before Swarrow reaches 1.0, only the latest release is eligible for security fixes. Reports against `main` are welcome when the issue is still reproducible, but fixes are not routinely backported to older pre-release versions.
+Only the latest release is eligible for security fixes. Reports against `main` are welcome when the issue is still reproducible, but fixes are not routinely backported to older versions.
 
 ## Reporting a vulnerability
 

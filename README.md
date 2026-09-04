@@ -2,9 +2,6 @@
 
 Swarrow is a small deployment relay for Docker Swarm. It lets an authorised GitHub Actions workflow update the image of one preconfigured service without giving the workflow SSH access or access to the Docker API.
 
-> [!WARNING]
-> Swarrow is pre-1.0. Its interfaces may change.
-
 ## Motivation
 
 A Docker Swarm operator may manage service topology centrally while individual application repositories build and publish their own container images. Most application releases only need to replace the image of an existing service.
@@ -33,7 +30,7 @@ Changing a service's image still allows the application repository to run arbitr
 
 ## Design
 
-The initial design is documented in:
+The design is documented in:
 
 - [Design](docs/design.md)
 - [Threat model](docs/threat-model.md)
@@ -41,7 +38,7 @@ The initial design is documented in:
 - [HTTP API](docs/http-api.md)
 - [Deployment](docs/deployment.md)
 
-The design and threat model describe the intended contract. The configuration, HTTP API and deployment documents describe the implemented initial interfaces. None of these interfaces is stable yet.
+The design and threat model describe Swarrow's contract and security boundaries. The configuration, HTTP API and deployment documents describe its interfaces and operation.
 
 ## Development
 
