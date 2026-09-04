@@ -1,6 +1,6 @@
 # Configuration
 
-Swarrow reads a single YAML document as its complete server and deployment policy. The implementation validates this initial schema strictly and rejects missing or unrecognised policy rather than inferring it. The schema may change before Swarrow's first stable release.
+Swarrow reads a single YAML document as its complete server and deployment policy. It validates the schema strictly and rejects missing or unrecognised policy rather than inferring it.
 
 The [GitHub identity policy](design.md#github-identity-policy) explains the meaning and security rationale of the identity fields.
 
