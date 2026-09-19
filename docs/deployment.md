@@ -72,21 +72,46 @@ The socket grants manager-level Docker authority regardless of the process UID. 
 
 ## Application workflow
 
-The deployment job must run on the GitHub Actions environment named by Swarrow policy and have `id-token: write` permission. A preceding job should publish the application image and expose its immutable registry digest.
+Add the following to a workflow that publishes an image on pushes to `main`. The existing `publish` job is omitted here; it must build the pushed revision and expose the image digest as an output named `digest`.
 
-Use the maintained [Swarrow Deploy action](https://github.com/aide-tools/swarrow-deploy) to obtain the GitHub OIDC token, submit the deployment and handle Swarrow's restart warm-up response. Pin the action to a full commit SHA so the workflow executes an immutable version:
+The workflow queues releases without cancelling the active run, then checks that the revision is still current before calling [Swarrow Deploy](https://github.com/aide-tools/swarrow-deploy). Adjust the environment and Swarrow inputs to match local policy, and pin the action to a full commit SHA. This example does not wait for a separate CI workflow.
 
 ```yaml
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+  queue: max
+
 jobs:
+  # Keep the existing publish job here.
   deploy:
     needs: publish
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production
     permissions:
+      contents: read
       id-token: write
     steps:
+      - name: Check revision is still current
+        id: revision
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVISION: ${{ github.sha }}
+        run: |
+          current="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          if [ "$current" = "$REVISION" ]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          fi
       - name: Deploy immutable image
+        if: steps.revision.outputs.current == 'true'
         uses: aide-tools/swarrow-deploy@886b3ab96017a9d6422459e7e6b2ddce82adc8d8 # v1.0.0
         with:
           url: https://deploy.example.net
@@ -100,6 +125,24 @@ The action treats only `200 OK` as a successful release. It automatically handle
 This example authorises the workflow containing the `deploy` job directly. If the application workflow calls a reusable workflow that defines the job, configure its complete `job_workflow_ref` as described in the [configuration reference](configuration.md). Swarrow still checks the configured `repository_id`, `workflow_ref` and `environment` independently; trusting a reusable workflow does not authorise every caller of that workflow.
 
 For a private application image, the existing target service must already retain valid registry credentials, normally established by its operator with `docker stack deploy --with-registry-auth`. Swarrow tells Docker to reuse credentials from that service specification; it does not accept, obtain or refresh registry credentials itself.
+
+### Queuing releases
+
+The `concurrency` block above lets one release run at a time, from image publication through deployment. Use the same group for workflows in the repository that deploy to the same target. The group applies only within that repository, so releases from other repositories and manual deployments need separate coordination.
+
+Set both `cancel-in-progress: false` and `queue: max`. The first lets the active release finish. The second keeps up to 100 runs waiting instead of replacing the pending run whenever another arrives. Once the queue is full, GitHub cancels additional arrivals. Check cancelled releases and rerun the appropriate release when space is available. GitHub does not allow `queue: max` with `cancel-in-progress: true`.
+
+For workflows triggered by CI completion, the default single pending slot lets an older commit whose CI finishes late replace the latest waiting release. The older run may then skip itself because its revision is out of date, leaving the latest release cancelled. A revision check cannot recover that cancelled run.
+
+Keeping more pending runs prevents this replacement while the queue has space. Runs are processed in the order they start waiting, which may differ from commit order or the order workflows were triggered. See [GitHub's concurrency documentation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency) for the queue settings and limits.
+
+### Checking the revision before deployment
+
+The example compares the pushed commit, `github.sha`, with current `main` after any environment approval wait. If they differ, deployment is skipped. A failed lookup fails the job. The digest comes from the publication job, so Swarrow deploys the image that was built for that revision.
+
+The publication job can make the same check before building to avoid unnecessary work. That early check does not replace the final one: `main` may advance during the build or approval wait. It can also change between the final check and deployment.
+
+Swarrow processes requests for each service one at a time, updating the image and observing the rollout. The calling workflow decides which revision to release; Swarrow cannot recover a cancelled GitHub run or determine whether a digest represents the latest commit. If Swarrow stops observing before a rollout finishes, check its outcome before starting another release.
 
 ## Validate an installation
 
