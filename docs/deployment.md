@@ -72,26 +72,106 @@ The socket grants manager-level Docker authority regardless of the process UID. 
 
 ## Application workflow
 
-The deployment job must run on the GitHub Actions environment named by Swarrow policy and have `id-token: write` permission. A preceding job should publish the application image and expose its immutable registry digest.
+The following workflow waits for successful CI on `main`, publishes the tested revision and deploys its immutable image digest through the [Swarrow Deploy action](https://github.com/aide-tools/swarrow-deploy). It checks that the revision is still current before building and again before deployment.
 
-Use the maintained [Swarrow Deploy action](https://github.com/aide-tools/swarrow-deploy) to obtain the GitHub OIDC token, submit the deployment and handle Swarrow's restart warm-up response. Pin the action to a full commit SHA so the workflow executes an immutable version:
+Save it as `.github/workflows/deploy.yml` on the default branch. Adjust the CI workflow name, image repository, build platforms and Swarrow inputs for the application. The example assumes a Dockerfile at the repository root. The `production` environment and workflow path must match Swarrow policy. Actions are pinned to full commit SHAs.
 
 ```yaml
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [Continuous Integration]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
 concurrency:
   group: production-deploy
   cancel-in-progress: false
   queue: max
 
 jobs:
+  check:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      current: ${{ steps.revision.outputs.current }}
+    steps:
+      - name: Check current main revision
+        id: revision
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVISION: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          current="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          if [ "$current" = "$REVISION" ]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    needs: check
+    if: needs.check.outputs.current == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Check out tested revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish tested revision
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/example/example-web:${{ github.event.workflow_run.head_sha }}
+
   deploy:
     needs: publish
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production
     permissions:
+      contents: read
       id-token: write
     steps:
+      - name: Check revision is still current
+        id: revision
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVISION: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          current="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          if [ "$current" = "$REVISION" ]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          fi
       - name: Deploy immutable image
+        if: steps.revision.outputs.current == 'true'
         uses: aide-tools/swarrow-deploy@886b3ab96017a9d6422459e7e6b2ddce82adc8d8 # v1.0.0
         with:
           url: https://deploy.example.net
@@ -123,11 +203,11 @@ Keeping more pending runs prevents this replacement while the queue has space. R
 
 ### Checking the revision before deployment
 
-For a `workflow_run` deployment that should release only the current `main` revision, accept only successful CI runs for pushes to `main` in the same repository. Once the deployment workflow gets its turn, compare `github.event.workflow_run.head_sha` with the current `main` SHA. If they differ, skip the release. If the lookup fails, stop the workflow.
+The `check` job accepts successful CI runs only for pushes to `main` in the same repository. It runs after the workflow gets its turn in the queue. If the tested revision is no longer current, `publish` and `deploy` are skipped. A failed GitHub API lookup fails the job rather than allowing publication.
 
-Check out that exact tested revision and publish its image, keeping the digest returned by the build. Immediately before calling Swarrow, check the revision against `main` again. This check belongs after any wait for environment approval. Deploy the digest only if the revision still matches.
+The `publish` job checks out `workflow_run.head_sha` explicitly: the deployment workflow's own `github.sha` refers to the default branch, which may have moved since CI ran. The image tag identifies the source revision for convenience; Swarrow receives the digest returned by the build.
 
-The first check avoids building an image that is already out of date. The second catches changes to `main` during the build or approval wait. `main` can still change between the final check and deployment.
+The second revision check runs inside the `deploy` job, after any environment approval wait. It catches changes to `main` during the build or approval wait, although `main` can still change between this check and deployment.
 
 Swarrow processes requests for each service one at a time, updating the image and observing the rollout. The calling workflow decides which revision to release; Swarrow cannot recover a cancelled GitHub run or determine whether a digest represents the latest commit. If Swarrow stops observing before a rollout finishes, check its outcome before starting another release.
 
