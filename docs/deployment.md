@@ -77,6 +77,11 @@ The deployment job must run on the GitHub Actions environment named by Swarrow p
 Use the maintained [Swarrow Deploy action](https://github.com/aide-tools/swarrow-deploy) to obtain the GitHub OIDC token, submit the deployment and handle Swarrow's restart warm-up response. Pin the action to a full commit SHA so the workflow executes an immutable version:
 
 ```yaml
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+  queue: max
+
 jobs:
   deploy:
     needs: publish
@@ -100,6 +105,27 @@ The action treats only `200 OK` as a successful release. It automatically handle
 This example authorises the workflow containing the `deploy` job directly. If the application workflow calls a reusable workflow that defines the job, configure its complete `job_workflow_ref` as described in the [configuration reference](configuration.md). Swarrow still checks the configured `repository_id`, `workflow_ref` and `environment` independently; trusting a reusable workflow does not authorise every caller of that workflow.
 
 For a private application image, the existing target service must already retain valid registry credentials, normally established by its operator with `docker stack deploy --with-registry-auth`. Swarrow tells Docker to reuse credentials from that service specification; it does not accept, obtain or refresh registry credentials itself.
+
+### Serialising releases and checking freshness
+
+The workflow-level `concurrency` block above serialises the whole release, including the preceding publication job. Use the same group for workflows in the repository that release to the same target. GitHub concurrency groups are scoped to a repository; they do not coordinate releases from other repositories or manual operator actions.
+
+`cancel-in-progress: false` lets the active release finish, but does not by itself preserve waiting runs. GitHub's default queue holds only one pending run and replaces it whenever another run enters the group. With `queue: max`, up to 100 runs can wait; additional arrivals are cancelled when the queue is full. Monitor cancelled releases and deliberately rerun the appropriate release after capacity is available. This is a bounded queue, not a guarantee that every release will run. GitHub rejects `queue: max` combined with `cancel-in-progress: true`.
+
+This distinction matters when deployment follows CI through a `workflow_run` trigger. Suppose commits land in order A, B and C. B finishes CI and starts publishing while it is still current; C then lands, finishes CI and waits. Finally, A's slower CI finishes. With the default queue, A replaces pending C. When B finishes, A checks `main` and skips itself as stale, but C has already been cancelled and never deploys. A revision check cannot recover a run removed from the queue.
+
+GitHub processes waiting runs in queue-admission order, which can differ from commit order or workflow dispatch order. For a workflow that releases only the current `main` revision:
+
+1. Accept only successful CI runs from a push to `main` in the same repository.
+2. After entering the concurrency group, compare `github.event.workflow_run.head_sha` with the current `main` SHA. Skip publication and deployment if they differ, and fail closed if the lookup fails.
+3. Check out and publish that exact tested revision, retaining the immutable digest produced by the build.
+4. Immediately before invoking Swarrow, repeat the comparison with current `main`. Run this check after any environment approval wait and deploy the retained digest only if the revision still matches.
+
+The first check avoids building an already stale revision; it does not prevent `main` from advancing during the build. The final check narrows that window but is not atomic with deployment: `main` can still change after the check. These checks implement a caller release policy, not a guarantee that the running service always matches the latest commit.
+
+Swarrow serialises requests that reach its per-service queue through image update and rollout observation. It does not know commit order, recover cancelled GitHub runs or enforce branch freshness. If observation ends while a rollout is still active, resolve that outcome before deliberately starting another release; GitHub retaining the active workflow does not make Swarrow observe indefinitely.
+
+See [GitHub's concurrency documentation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency) for queue behaviour and supported settings.
 
 ## Validate an installation
 
