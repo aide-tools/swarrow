@@ -13,6 +13,7 @@ var ErrDenied = errors.New("deployment authorisation denied")
 
 // Deployment is the operator-controlled capability granted to a workflow.
 type Deployment struct {
+	Mode    string
 	Name    string
 	Service string
 	Image   string
@@ -45,6 +46,7 @@ func (policy *Policy) Authorise(name string, claims githuboidc.Claims) (Deployme
 
 	return Deployment{
 		Name:    deployment.Name,
+		Mode:    deployment.Target.Mode,
 		Service: deployment.Target.Service,
 		Image:   deployment.Target.Image,
 	}, nil

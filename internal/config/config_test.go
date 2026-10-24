@@ -181,3 +181,31 @@ func TestDecodeRejectsInvalidConfiguration(t *testing.T) {
 		t.Errorf("Decode() error = %q, want a validation error", err)
 	}
 }
+
+func TestDecodeTargetMode(t *testing.T) {
+	for _, mode := range []string{"", "service", "job", "global-job", " job"} {
+		t.Run(mode, func(t *testing.T) {
+			input := `version: 1
+server: {listen: '127.0.0.1:8080', request_timeout: 5m}
+github: {audience: 'https://deploy.example.net'}
+deployments:
+  - name: migration
+    identity: {repository_id: '123', workflow_ref: 'example/app/.github/workflows/deploy.yml@refs/heads/main', environment: production}
+    target:
+      service: migration
+      image: ghcr.io/example/app
+`
+			if mode != "" {
+				input += "      mode: '" + mode + "'\n"
+			}
+			got, err := config.Decode(strings.NewReader(input))
+			valid := mode == "" || mode == "service" || mode == "job"
+			if valid && (err != nil || got.Deployments[0].Target.Mode != mode) {
+				t.Fatalf("mode=%q config=%+v err=%v", mode, got, err)
+			}
+			if !valid && err == nil {
+				t.Fatalf("accepted mode %q", mode)
+			}
+		})
+	}
+}

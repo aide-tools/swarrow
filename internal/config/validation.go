@@ -35,6 +35,9 @@ func Validate(configuration Config) error {
 
 	for index, deployment := range configuration.Deployments {
 		path := fmt.Sprintf("deployments[%d]", index)
+		if deployment.Target.Mode != "" && deployment.Target.Mode != "service" && deployment.Target.Mode != "job" {
+			problems = append(problems, path+".target.mode: must be service or job")
+		}
 
 		problems = append(problems, validateRequired(path+".name", deployment.Name)...)
 		problems = append(problems, validateRepositoryID(path+".identity.repository_id", deployment.Identity.RepositoryID)...)

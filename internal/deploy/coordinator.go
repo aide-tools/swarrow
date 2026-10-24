@@ -47,6 +47,7 @@ type Request struct {
 
 // Outcome records the mutation Swarrow made and the rollout state it observed.
 type Outcome struct {
+	JobIteration     *uint64
 	Deployment       string
 	Action           Action
 	Conclusion       swarm.Conclusion
@@ -74,6 +75,12 @@ type rolloutObserver interface {
 	Observe(context.Context, swarm.Target) (swarm.Observation, error)
 }
 
+type jobRunner interface {
+	Run(context.Context, string, string, string) (swarm.Result, swarm.Observation, error)
+	Retry(context.Context, string, string, string, uint64) (swarm.Result, swarm.Observation, error)
+	Observe(context.Context, swarm.Target) (swarm.Observation, error)
+}
+
 // Coordinator serialises deployment lifecycles per configured service.
 type Coordinator struct {
 	ctx      context.Context
@@ -81,6 +88,7 @@ type Coordinator struct {
 	replay   *replay.Cache[Outcome]
 	updater  imageUpdater
 	observer rolloutObserver
+	jobs     jobRunner
 	workers  map[string]*serviceWorker
 }
 
@@ -106,16 +114,22 @@ type serviceWorker struct {
 }
 
 // New creates fixed-capacity workers for every validated service target.
-func New(ctx context.Context, configuration config.Config, authoriser authoriser, updater imageUpdater, observer rolloutObserver) (*Coordinator, error) {
-	return newCoordinator(ctx, configuration, authoriser, updater, observer, defaultQueueCapacity, defaultReplayCapacity, time.Now)
+func New(ctx context.Context, configuration config.Config, authoriser authoriser, updater imageUpdater, observer rolloutObserver, jobs jobRunner) (*Coordinator, error) {
+	return newCoordinator(ctx, configuration, authoriser, updater, observer, jobs, defaultQueueCapacity, defaultReplayCapacity, time.Now)
 }
 
-func newCoordinator(ctx context.Context, configuration config.Config, authoriser authoriser, updater imageUpdater, observer rolloutObserver, queueCapacity int, replayCapacity int, now func() time.Time) (*Coordinator, error) {
+func newCoordinator(ctx context.Context, configuration config.Config, authoriser authoriser, updater imageUpdater, observer rolloutObserver, jobs jobRunner, queueCapacity int, replayCapacity int, now func() time.Time) (*Coordinator, error) {
 	if ctx == nil || authoriser == nil || updater == nil || observer == nil || queueCapacity <= 0 {
 		return nil, ErrInvalidConfiguration
 	}
 	if err := config.Validate(configuration); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidConfiguration, err)
+	}
+
+	for _, deployment := range configuration.Deployments {
+		if deployment.Target.Mode == "job" && jobs == nil {
+			return nil, ErrInvalidConfiguration
+		}
 	}
 
 	replayCache, err := replay.New[Outcome](replayCapacity, now)
@@ -129,6 +143,7 @@ func newCoordinator(ctx context.Context, configuration config.Config, authoriser
 		replay:   replayCache,
 		updater:  updater,
 		observer: observer,
+		jobs:     jobs,
 		workers:  make(map[string]*serviceWorker, len(configuration.Deployments)),
 	}
 	for _, deployment := range configuration.Deployments {
@@ -363,6 +378,9 @@ func (coordinator *Coordinator) execute(next job) (Outcome, error) {
 	if err := next.ctx.Err(); err != nil {
 		return notApplied(next.deployment.Name), err
 	}
+	if next.deployment.Mode == "job" {
+		return coordinator.executeJob(next)
+	}
 	if next.resume != nil {
 		return coordinator.observe(next.ctx, *next.resume)
 	}
@@ -402,6 +420,44 @@ func (coordinator *Coordinator) execute(next job) (Outcome, error) {
 	}
 
 	return coordinator.observe(next.ctx, outcome)
+}
+
+func (coordinator *Coordinator) executeJob(next job) (Outcome, error) {
+	if coordinator.jobs == nil {
+		return notApplied(next.deployment.Name), ErrInvalidConfiguration
+	}
+	if next.resume != nil {
+		outcome := *next.resume
+		observation, err := coordinator.jobs.Observe(next.ctx, swarm.Target{
+			ServiceID: outcome.ServiceID, Image: outcome.Image, JobIteration: outcome.JobIteration,
+		})
+		return jobOutcome(outcome, observation), err
+	}
+	var applied swarm.Result
+	var observation swarm.Observation
+	var err error
+	if next.retryVersion != nil {
+		applied, observation, err = coordinator.jobs.Retry(next.ctx, next.deployment.Service, next.deployment.Image, next.digest, *next.retryVersion)
+	} else {
+		applied, observation, err = coordinator.jobs.Run(next.ctx, next.deployment.Service, next.deployment.Image, next.digest)
+	}
+	outcome := outcomeFromApply(next.deployment.Name, applied)
+	if outcome.Action == "" {
+		outcome.Action = ActionNotApplied
+	}
+	// A busy result describes the previous run, not the requested image.
+	if errors.Is(err, swarm.ErrJobBusy) {
+		return outcome, err
+	}
+	return jobOutcome(outcome, observation), err
+}
+
+func jobOutcome(outcome Outcome, observation swarm.Observation) Outcome {
+	outcome.Conclusion = observation.Conclusion
+	outcome.JobIteration = observation.JobIteration
+	outcome.Message = observation.Message
+	outcome.Tasks = observation.Tasks
+	return outcome
 }
 
 func (coordinator *Coordinator) observe(ctx context.Context, outcome Outcome) (Outcome, error) {

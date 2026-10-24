@@ -428,3 +428,58 @@ func TestJobRequiresPreviousSpecBeforeAdoptingUpdatedIteration(t *testing.T) {
 		t.Fatalf("run = %+v %v updates=%d", observed, err, f.updates)
 	}
 }
+
+func TestJobConditionalRetryDoesNotReplaceANewerRelease(t *testing.T) {
+	f := newJobFake()
+	version := f.service.Version.Index
+	f.service.Version.Index++
+	result, observed, err := jobRunnerForTest(t, f).Retry(context.Background(), f.service.ID, jobRepository, jobDigest, version)
+	if !errors.Is(err, ErrConflict) || observed.Conclusion != ConclusionSuperseded || result.Action != "" || f.updates != 0 {
+		t.Fatalf("retry=%+v %+v %v updates=%d", result, observed, err, f.updates)
+	}
+}
+
+func TestJobConditionalRetryObservesAnAcceptedUpdate(t *testing.T) {
+	f := newJobFake()
+	f.updateError = errors.New("lost response")
+	jobs := jobRunnerForTest(t, f)
+	result, _, _ := jobs.Run(context.Background(), f.service.ID, jobRepository, jobDigest)
+	_, observed, err := jobs.Retry(context.Background(), f.service.ID, jobRepository, jobDigest, result.InspectedVersion)
+	if err != nil || observed.Conclusion != ConclusionCompleted || f.updates != 1 {
+		t.Fatalf("retry=%+v %v updates=%d", observed, err, f.updates)
+	}
+}
+
+func TestJobObservationRetryDoesNotApplyImage(t *testing.T) {
+	for _, changed := range []bool{false, true} {
+		t.Run(map[bool]string{false: "same iteration", true: "replacement"}[changed], func(t *testing.T) {
+			f := newJobFake()
+			f.complete = false
+			jobs := jobRunnerForTest(t, f)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+			defer cancel()
+			result, observed, err := jobs.Run(ctx, f.service.ID, jobRepository, jobDigest)
+			if err != nil || observed.JobIteration == nil {
+				t.Fatalf("run=%+v %v", observed, err)
+			}
+			expected := ConclusionCompleted
+			if changed {
+				f.service.JobStatus = &swarmtypes.JobStatus{JobIteration: swarmtypes.Version{Index: 99}}
+				expected = ConclusionSuperseded
+			}
+			f.setTask(swarmtypes.TaskStateComplete, 0)
+			observed, err = jobs.Observe(context.Background(), Target{ServiceID: result.ServiceID, Image: result.Image, JobIteration: observed.JobIteration})
+			if err != nil || observed.Conclusion != expected || f.updates != 1 {
+				t.Fatalf("observe=%+v %v updates=%d", observed, err, f.updates)
+			}
+		})
+	}
+}
+
+func TestJobObservationWithoutAnEstablishedIterationFailsClosed(t *testing.T) {
+	f := newJobFake()
+	observed, err := jobRunnerForTest(t, f).Observe(context.Background(), Target{ServiceID: f.service.ID, Image: jobRepository + "@" + jobDigest})
+	if err != nil || observed.Conclusion != ConclusionSuperseded || f.updates != 0 {
+		t.Fatalf("observe=%+v %v", observed, err)
+	}
+}

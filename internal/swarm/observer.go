@@ -26,10 +26,12 @@ const (
 	ConclusionInProgress Conclusion = "in_progress"
 )
 
-// Target identifies the service image and rollout to observe.
+// Target identifies the service image and execution to observe.
 type Target struct {
-	ServiceID string
-	Image     string
+	// JobIteration identifies an established job execution for observation-only retries.
+	JobIteration *uint64
+	ServiceID    string
+	Image        string
 	// RolloutVersion identifies a statusless rollout established by an earlier observation.
 	RolloutVersion *uint64
 	// RolloutStartedAt identifies a rollout established by an earlier observation.
@@ -54,6 +56,7 @@ type TaskSummary struct {
 
 // Observation is the conclusion reached from the latest service and task state.
 type Observation struct {
+	JobIteration   *uint64
 	Conclusion     Conclusion
 	Message        string
 	ServiceVersion uint64
