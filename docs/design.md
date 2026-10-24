@@ -55,7 +55,7 @@ Before Docker publishes a rollout start time, Swarrow records the stable service
 
 Task diagnostics require the rollout start time as a trustworthy lower time boundary. Swarrow still inspects active tasks to decide whether a statusless rollout has work remaining, but omits task details from the response until Docker publishes that boundary. A replacement rollout's start time becomes the upper boundary for diagnostics from the rollout that Swarrow was following.
 
-If Docker exposes no rollout status, Swarrow lists active tasks and then re-inspects the service before concluding. It continues observing while any active task still targets another image, regardless of which caller submitted the update. If the service remains unchanged and no active task requires the image change, Swarrow reports the rollout as completed. This includes replicated services scaled to zero and global services without eligible tasks. Replicated and global jobs are rejected before mutation because they do not expose the rolling-update lifecycle Swarrow observes.
+If Docker exposes no rollout status, Swarrow lists active tasks and then re-inspects the service before concluding. It continues observing while any active task still targets another image, regardless of which caller submitted the update. If the service remains unchanged and no active task requires the image change, Swarrow reports the rollout as completed. This includes replicated services scaled to zero and global services without eligible tasks. Ordinary service targets reject replicated and global jobs before mutation. Explicit job targets follow the [job lifecycle](#predefined-job-executions) instead.
 
 The response reports Swarrow's action, such as `updated` or `no_change`, separately from the observed conclusion. The conclusions distinguish `completed`, `failed`, `rolled_back`, `superseded` and `in_progress`. The [HTTP API](http-api.md) defines their response shape and status codes.
 
@@ -87,16 +87,13 @@ Each initial worker admits at most 16 waiting requests in addition to the reques
 
 A request retains its original timeout while queued. If that timeout expires before processing begins, Swarrow removes the request without calling Docker and reports that no update was applied. A full queue is also rejected without calling Docker. Docker's version index still protects against changes made outside Swarrow, which must be reported explicitly rather than overwritten. Application workflows remain responsible for deciding release order.
 
-## Proposed predefined job executions
+## Predefined job executions
 
-> [!NOTE]
-> This section proposes job support for a later implementation. The current release does not support job targets.
-
-The proposed release sequence is: publish an image, run its migrations, then deploy that same digest to the web service. The workflow proceeds to deployment only after the migration task exits successfully.
+The release sequence is: publish an image, run its migrations, then deploy that same digest to the web service. The workflow proceeds to deployment only after the migration task exits successfully.
 
 A Swarm job runs a container command to completion. For example, a migration container applies database changes and exits, while a web container keeps running to serve requests. Swarm calls each scheduled container run a *task*. When a job task exits successfully, Swarm marks it complete instead of starting it again.
 
-The [`replicated-job` mode](https://docs.docker.com/reference/cli/docker/service/create/#replicated-jobs) lets the operator choose how many tasks the job should complete and how many may run at once. This proposal uses just one task. The job definition stays in Swarm after the container exits, so a later image update can start a new execution using the same command, secrets and networks.
+The [`replicated-job` mode](https://docs.docker.com/reference/cli/docker/service/create/#replicated-jobs) lets the operator choose how many tasks the job should complete and how many may run at once. Swarrow supports one task per job. The job definition stays in Swarm after the container exits, so a later image update can start a new execution using the same command, secrets and networks.
 
 The operator defines the migration command and gives the job the settings, secrets and network access it needs. Swarrow uses that existing definition. The job runs one task and does not automatically restart it if it fails.
 
@@ -127,7 +124,7 @@ networks:
 > [!IMPORTANT]
 > Creating this job runs the migration immediately. It is not a dormant template. Use an initial image whose migration command is safe to run and let it finish before Swarrow replaces it. The job definition remains after the container exits.
 
-Docker CLI v29 supports this job mode in [stack definitions](https://github.com/docker/cli/blob/v29.0.0/cli/compose/convert/service.go#L619-L623). For a stack named `myapp`, the service is named `myapp_migrate`. The proposed Swarrow deployment target would be:
+Docker CLI v29 supports this job mode in [stack definitions](https://github.com/docker/cli/blob/v29.0.0/cli/compose/convert/service.go#L619-L623). For a stack named `myapp`, the service is named `myapp_migrate`. The Swarrow deployment target is:
 
 ```yaml
 target:
@@ -136,7 +133,7 @@ target:
   image: ghcr.io/example/myapp
 ```
 
-The [configuration contract](configuration.md#proposed-job-targets) describes how this target fits into a deployment policy. Later releases would submit a new digest to Swarrow, which updates the existing job's image and waits for the migration to finish.
+The [configuration contract](configuration.md#job-targets) describes how this target fits into a deployment policy. Later releases submit a new digest to Swarrow, which updates the existing job's image and waits for the migration to finish.
 
 ### Starting or observing a job
 
@@ -182,13 +179,13 @@ Swarm assigns each execution an iteration number. Swarrow reads that number rath
 
 Swarrow inspects the service before and after listing its tasks. If the service version changes between those inspections, it discards the results and tries again. Before an image update, it requires consistent evidence that the current iteration's tasks have finished. Running tasks, missing task history or inconsistent inspection results block the update.
 
-Swarrow keeps no durable request history to distinguish an obsolete release from an intentional request for the same digest. Observation after a restart uses the current job state.
+Swarrow keeps no durable request history to distinguish an obsolete release from an intentional request for the same digest. Observation after a restart uses the current job state. Within one process, a retry with the same token resumes the recorded iteration without changing the image. If observation ended before Swarrow could identify that iteration, the same-token retry reports `superseded`; a fresh authorised token can observe the current image. An uncertain submission can be retried with the same token only while the inspected service version still matches, unless the requested image is already selected.
 
 Before release, test against a live Swarm to verify job iteration changes, observation of an existing execution and recovery after a lost update response.
 
 </details>
 
-The proposed [configuration](configuration.md#proposed-job-targets), [HTTP contract](http-api.md#proposed-job-api) and [threat controls](threat-model.md#proposed-job-execution-controls) define the corresponding interfaces and constraints.
+The [configuration](configuration.md#job-targets), [HTTP contract](http-api.md#job-api) and [threat controls](threat-model.md#job-execution-controls) define the corresponding interfaces and constraints.
 
 ## GitHub identity policy
 

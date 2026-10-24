@@ -22,6 +22,7 @@ An authorised workflow may:
 
 - Deploy an immutable digest from one approved image repository
 - Update the image of one preconfigured Swarm service
+- Run an existing migration job and observe its result
 - Observe the result of that deployment
 
 It may not choose another service or image repository, alter the service's configuration or make arbitrary Docker API requests.

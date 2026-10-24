@@ -91,10 +91,7 @@ Retries or concurrent workflows may submit the same or competing digests.
 
 An exact retry must not repeat the service mutation. Requests targeting the same service must enter a fixed-capacity queue and be serialised through the apply-and-observe lifecycle. The request timeout must include time spent waiting, and an expired or excess queued request must not reach Docker. Docker version conflicts and an outside update that supersedes the requested image must produce explicit results rather than accidental last-write-wins behaviour. Application workflows remain responsible for release ordering.
 
-### Proposed job execution controls
-
-> [!NOTE]
-> This section proposes job support for a later implementation. The current release does not support job targets.
+### Job execution controls
 
 A lost connection must not cause a running migration to start again. When the requested image is still current, Swarrow observes that run without updating the service. This applies whether the run is active, completed or failed, including after Swarrow restarts and the workflow obtains a new authentication token.
 
