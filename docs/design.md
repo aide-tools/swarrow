@@ -155,13 +155,24 @@ This behaviour depends on the job's current image. If another release has replac
 
 ### Deciding whether the job finished
 
-Swarm assigns each job execution an iteration number. Swarrow reads that number from Swarm and observes only tasks from that iteration; it does not calculate what the next number should be. Tasks from an older execution cannot prove that the current one succeeded. If the service is replaced, its image changes or a different iteration appears during observation, Swarrow reports `superseded`.
+Swarrow checks two things: did this migration succeed, and is it safe to start the next one?
 
-Swarrow inspects the service before and after listing its tasks. If the service version changes between those inspections, it discards the results and tries again. Success requires exactly one task that completed with exit code zero. A failed execution must block web deployment, and missing task evidence must never count as success.
+Swarm keeps records of earlier runs. Yesterday's migration may have succeeded while today's is still running, so Swarrow must check the result of the current run:
 
-Before changing the image for another execution, Swarrow requires evidence that the current iteration's tasks have finished. Running tasks, missing task history or inconsistent inspection results block the update. This matters because updating a Swarm job stops its running tasks and starts a new execution.
+- If its task completes with exit code zero, the migration succeeded and the workflow can deploy the web service.
+- If it fails, Swarrow reports failure and the workflow must stop.
+- If it is still running or its result is unavailable, success has not been established and web deployment must wait.
 
-Swarrow uses the current job iteration and task history to determine the result. Missing task evidence remains inconclusive and prevents an image update; it never implies success.
+Before starting a different image, Swarrow also checks that the current migration has finished. Updating a Swarm job stops its running tasks, so this check prevents a new release from interrupting a migration. If Swarrow cannot establish whether the current run has finished, it blocks the image update.
+
+<details>
+<summary>Implementation requirements for observing a job</summary>
+
+Swarm assigns each execution an iteration number. Swarrow reads that number rather than calculating the next value and observes only tasks belonging to that iteration. Success requires exactly one completed task with exit code zero. If the service is replaced, its image changes or a different iteration appears during observation, Swarrow reports `superseded`.
+
+Swarrow inspects the service before and after listing its tasks. If the service version changes between those inspections, it discards the results and tries again. Before an image update, it requires consistent evidence that the current iteration's tasks have finished. Running tasks, missing task history or inconsistent inspection results block the update.
+
+</details>
 
 ### Provisioning and limits
 
