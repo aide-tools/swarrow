@@ -102,6 +102,42 @@ The operator creates this job and configures a Swarrow target with `mode: job` t
 
 Swarrow updates the existing job's image and waits for its result. It does not create or remove services, change commands or force jobs to rerun. The workflow decides when to submit the migration and web targets; Swarrow does not enforce a dependency between them.
 
+### Example migration job
+
+This stack definition runs one migration task with automatic retries disabled. Replace the image digest and command with an approved image and its migration command, then supply the secrets or environment settings it needs to access the database. The `database` overlay network must already exist.
+
+```yaml
+services:
+  migrate:
+    image: ghcr.io/example/myapp@sha256:<approved-image-digest>
+    command: ["/app/bin/migrate"]
+    networks:
+      - database
+    deploy:
+      mode: replicated-job
+      replicas: 1
+      restart_policy:
+        condition: none
+
+networks:
+  database:
+    external: true
+```
+
+> [!IMPORTANT]
+> Creating this job runs the migration immediately. It is not a dormant template. Use an initial image whose migration command is safe to run and let it finish before Swarrow replaces it. The job definition remains after the container exits.
+
+Docker CLI v29 supports this job mode in [stack definitions](https://github.com/docker/cli/blob/v29.0.0/cli/compose/convert/service.go#L619-L623). For a stack named `myapp`, the service is named `myapp_migrate`. The proposed Swarrow deployment target would be:
+
+```yaml
+target:
+  mode: job
+  service: myapp_migrate
+  image: ghcr.io/example/myapp
+```
+
+The [configuration contract](configuration.md#proposed-job-targets) describes how this target fits into a deployment policy. Later releases would submit a new digest to Swarrow, which updates the existing job's image and waits for the migration to finish.
+
 ### Starting a job
 
 The workflow makes two requests:
@@ -135,7 +171,7 @@ There is no separate operation database. Swarrow relies on the current service l
 
 ### Provisioning and limits
 
-Creating a Swarm job starts it immediately. The operator must provision it with an approved initial image whose command is safe to run, then let that execution finish before Swarrow replaces it. Swarrow cannot adopt an untracked execution for the same digest. It leaves completed tasks and the job definition in Swarm.
+Swarrow cannot adopt an untracked execution for the same digest, including the initial execution created during provisioning. It leaves completed tasks and the job definition in Swarm.
 
 The retry rules prevent Swarrow from starting a second execution in response to a retry. They cannot guarantee exactly-once database effects across node failures or operator intervention. Migration code still needs database locking and safe handling of repeated runs. Schema changes must also remain compatible with the old application during rollout.
 
