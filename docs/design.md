@@ -87,6 +87,37 @@ Each initial worker admits at most 16 waiting requests in addition to the reques
 
 A request retains its original timeout while queued. If that timeout expires before processing begins, Swarrow removes the request without calling Docker and reports that no update was applied. A full queue is also rejected without calling Docker. Docker's version index still protects against changes made outside Swarrow, which must be reported explicitly rather than overwritten. Application workflows remain responsible for deciding release order.
 
+## Proposed predefined job executions
+
+> [!NOTE]
+> This section proposes job support for a later implementation. The current release does not support job targets or the preparation endpoint.
+
+The proposed release sequence is: publish an image, run its migrations, then deploy that same digest to the web service. The workflow proceeds to deployment only after the migration task exits successfully.
+
+A target with `mode: job` authorises an image update to an existing single-task `replicated-job`. The operator owns its command, configuration, secrets, networks and restart policy. Swarrow requires one total completion, concurrency of one and `restart-condition: none`. It does not create or remove services, change commands or force jobs to rerun. The workflow owns the ordering; Swarrow does not enforce a dependency between the migration and web targets.
+
+### Preparing an execution
+
+Job requests use two steps. An authorised, read-only preparation request returns an opaque execution reference. For a new image, the reference binds the candidate image to the inspected service ID and version. Submission compares that reference against current state and uses Docker's version index for the update. It changes the image and records the reference in the reserved `io.swarrow.execution` service label. This is a deliberate exception to the image-only mutation rule: Swarrow may also write this one service label for job targets. Every other service setting remains operator-owned, and the reference grants no authority on its own.
+
+A repeated reference observes the recorded execution without submitting another update. The label survives Swarrow restarts and token renewal. Swarm's actual job iteration selects the tasks to observe; Swarrow does not predict the next iteration number. The saved previous specification must exist and must not contain the same execution reference: if an operator updates the job while retaining that label, the resulting execution is treated as superseded. An obsolete reference never authorises another run. An update that Docker did not accept can be retried only while the original service version still matches the prepared reference.
+
+Preparation for the current image returns its existing tracked reference, including when that execution failed. A matching image without a trustworthy execution label is rejected rather than run again. A deliberate later release prepares a new reference for a different image. Retrying an earlier release must retain its original reference, not prepare again after another image has replaced it.
+
+### Completion and recovery
+
+Before replacing a job, Swarrow requires terminal task evidence for its current iteration. An active job, missing task evidence or an unstable snapshot blocks the update. Observation brackets the task listing with service inspections, discards mixed versions and reports success only for exactly one completed task with exit code zero. Old iterations cannot satisfy completion. A failure closes the release gate; missing evidence remains inconclusive.
+
+Timeouts and disconnected clients stop observation without stopping the job. The client may reconnect with the same execution reference and a fresh authorised token. Swarrow keeps no separate operation database: the current service label, previous specification and task history provide the evidence. If that evidence is removed or replaced, it fails closed. The first submission binds the token's `jti` to the deployment, digest and execution reference; read-only preparation does not consume that binding. Every preparation and submission must pass authentication and authorisation before reaching Docker. Job submissions use the existing bounded per-service queue and request timeout.
+
+Creating a Swarm job starts it immediately. Provisioning must therefore use an approved bootstrap image whose command is safe to run, and that execution must finish before Swarrow can replace it. Swarrow cannot adopt an untracked execution for the same digest. Completed tasks and the job definition remain in Swarm; Swarrow does not clean them up.
+
+This prevents retries from causing Swarrow to start a second execution. It does not promise exactly-once database effects across node failures or operator intervention. Migration code must use suitable database locking and tolerate safe reruns, and schema changes must remain compatible with the old application during rollout.
+
+The implementation must verify these assumptions against a live Swarm before release, particularly job iteration changes, preservation of the previous specification and recovery after a lost update response. Docker documents [job creation](https://docs.docker.com/reference/cli/docker/service/create/#running-as-a-job) and [job updates](https://docs.docker.com/reference/cli/docker/service/update/#updating-jobs); updating a job stops its running tasks and starts a new execution.
+
+The proposed [configuration](configuration.md#proposed-job-targets), [HTTP contract](http-api.md#proposed-job-api) and [threat controls](threat-model.md#proposed-job-execution-controls) define the corresponding interfaces and constraints.
+
 ## GitHub identity policy
 
 GitHub Actions jobs can request a short-lived OpenID Connect token containing signed claims about the running job. Swarrow first authenticates that token as a statement from GitHub, then authorises the job by comparing a small set of its claims with local deployment policy.

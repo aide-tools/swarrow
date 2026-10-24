@@ -91,6 +91,19 @@ Retries or concurrent workflows may submit the same or competing digests.
 
 An exact retry must not repeat the service mutation. Requests targeting the same service must enter a fixed-capacity queue and be serialised through the apply-and-observe lifecycle. The request timeout must include time spent waiting, and an expired or excess queued request must not reach Docker. Docker version conflicts and an outside update that supersedes the requested image must produce explicit results rather than accidental last-write-wins behaviour. Application workflows remain responsible for release ordering.
 
+### Proposed job execution controls
+
+> [!NOTE]
+> This section proposes job support for a later implementation. The current release does not support job targets or the preparation endpoint.
+
+A lost response can leave a migration running even though its caller reports failure. Retrying must not restart it, and a successful task from a previous job iteration must not open the deployment gate.
+
+Job submission requires a prepared reference bound to a service ID, version and candidate image. The image update atomically records that reference in `io.swarrow.execution`; a retry observes the recorded execution or fails on conflicting state. The reference remains usable with a fresh authorised token after a Swarrow restart. Preparation is read-only and applies the same identity policy as submission. References do not grant authority by themselves or allow callers to select a Docker service.
+
+Swarm updates restart jobs, so Swarrow must refuse to replace an active or unaccounted-for execution. It requires a single-task job with automatic restarts disabled, uses Docker's version index and accepts completion only from the current job iteration with a confirmed zero exit code. An outside update carrying the execution label into the previous specification invalidates that execution's identity. Operators remain trusted and must not forge or restore execution metadata. Missing task history blocks progress rather than implying success.
+
+Retries must retain their original reference. Preparing a different image after another release is a new operation. The workflow owns migration-before-web ordering and serialises the whole release; separate targets do not create a server-enforced dependency. Database effects cannot be made exactly once by HTTP or Swarm observation alone, and migration code still needs appropriate locking and safe failure recovery.
+
 ### Malicious image
 
 An authorised repository may deliberately or accidentally deploy malicious code. That code may read the target service's secrets, access attached networks, modify mounted storage or exercise configured Linux capabilities.

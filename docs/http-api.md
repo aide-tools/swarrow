@@ -65,6 +65,32 @@ A completed response has this shape:
 
 `action` records what Swarrow established about the image mutation. `conclusion` records the rollout state it observed. Failed task details may be included when Swarm reports them. Docker service IDs and version indexes are never returned.
 
+## Proposed job API
+
+> [!NOTE]
+> This section proposes job support for a later implementation. The current release does not support job targets or the preparation endpoint.
+
+For a target configured with `mode: job`, first send `POST /v1/deployments/example-migrate/prepare` with the same Bearer authentication and `{ "digest": "sha256:..." }` body. This operation is read-only and uses the normal authorisation policy. A successful response is `200 OK` with `{ "execution": "<reference>" }`, where the reference is an opaque string of 64 lowercase hexadecimal characters. Preparation for an ordinary service target returns `400` with `invalid_execution`.
+
+Retain that reference before submitting the job:
+
+```http
+POST /v1/deployments/example-migrate
+Authorization: Bearer <short-lived GitHub OIDC token>
+Content-Type: application/json
+
+{
+  "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "execution": "<reference returned by preparation>"
+}
+```
+
+Submission uses the normal deployment response shape. `200` with `completed` means the job's task exited successfully. `502` with `failed` means the execution failed; it must not be followed by web deployment. `202` with `in_progress` means the image was selected but completion was still unknown when observation ended. `504` means Swarrow could not confirm that Docker selected the image before the request timeout. A disconnected response is also an unknown outcome. Repeat submission with the same digest and reference to resume observation, obtaining a fresh token when necessary. Do not prepare again to recover an uncertain submission.
+
+A reference invalidated by another update returns `409` with a `superseded` conclusion; `job_busy` also returns `409` when the previous execution is active or lacks terminal evidence. A missing reference on a job target, a reference on an ordinary target or a reference supplied to preparation returns `400` with `invalid_execution`. Duplicate, unknown or malformed fields are rejected within the existing 1 KiB body limit. The reference is not a credential and every request is independently authenticated and authorised.
+
+Preparing the current image returns its existing tracked execution; it does not rerun a failed job. A current image with no trustworthy execution record is rejected. Job definitions and completed tasks remain in Swarm; Swarrow does not clean them up. See the [job lifecycle](design.md#proposed-predefined-job-executions) for the evidence required to start and observe an execution.
+
 ## Status codes
 
 | Status | Meaning |
