@@ -90,7 +90,7 @@ A request retains its original timeout while queued. If that timeout expires bef
 ## Proposed predefined job executions
 
 > [!NOTE]
-> This section proposes job support for a later implementation. The current release does not support job targets or the preparation endpoint.
+> This section proposes job support for a later implementation. The current release does not support job targets.
 
 The proposed release sequence is: publish an image, run its migrations, then deploy that same digest to the web service. The workflow proceeds to deployment only after the migration task exits successfully.
 
@@ -138,44 +138,38 @@ target:
 
 The [configuration contract](configuration.md#proposed-job-targets) describes how this target fits into a deployment policy. Later releases would submit a new digest to Swarrow, which updates the existing job's image and waits for the migration to finish.
 
-### Starting a job
+### Starting or observing a job
 
-The workflow makes two requests:
+The workflow sends one request containing the image digest. Swarrow inspects the configured job and compares its current image with the requested image:
 
-1. **Prepare:** Swarrow inspects the job and returns an execution reference, an opaque value that identifies the intended run. This request does not change anything in Swarm. For a new image, the reference ties that image to the service's ID and current version.
-2. **Submit:** The workflow sends the digest and reference. Swarrow checks that the service still matches the prepared version, then updates its image. Docker's version check prevents the update from overwriting a concurrent change.
+- If they match, Swarrow observes the existing execution without updating the service. This includes jobs that are still running, have succeeded or have failed.
+- If they differ, Swarrow first checks that the previous execution has finished, then changes only the image and observes the new execution. It submits the inspected service version to Docker so a concurrent change cannot be overwritten.
 
-The update also saves the reference in the service label `io.swarrow.execution`. Saving the image and reference together lets a later request recognise an accepted execution, even after Swarrow restarts or the workflow obtains a new token. This label is the one proposed exception to Swarrow's image-only update rule. All other service settings remain operator-owned.
+Every request must pass authentication and authorisation before reaching Docker. The existing replay rules bind the token's `jti` to the deployment and digest. Job requests use the existing bounded per-service queue and request timeout.
 
-Every request must pass authentication and authorisation before reaching Docker; knowing a reference grants no permission. The first submission binds the token's `jti` to the deployment, digest and reference, so that token cannot submit a different request. Preparation does not consume this binding. Submissions use the existing bounded per-service queue and request timeout.
+### Retrying after a lost response
 
-### Retrying without restarting
+A timeout or disconnection stops observation, not the job. The workflow can send the same digest again, obtaining a fresh authorised token when necessary. While the job still uses that image, Swarrow observes its current execution without restarting it. A failed execution remains failed; repeating its digest does not force another run.
 
-The workflow saves the reference before submission and reuses it if the response is lost or times out. Swarrow then observes the original execution without starting it again. A timeout or disconnection stops observation, not the job. The workflow may obtain a fresh authorised token to continue watching.
-
-If Docker never accepted the update, Swarrow may retry it only while the service still has the version recorded by preparation. If another update has replaced that version or execution, the old reference cannot start another run.
-
-Preparing the job's current image returns its existing tracked reference, even if that execution failed. It does not rerun a failed job. If the current image has no trustworthy execution record, Swarrow rejects the request. A later release with a different image needs a new reference. Recovery of an earlier release must keep its original reference rather than prepare again after another image has replaced it.
-
-Swarrow also checks the previous service specification saved by Docker. It must exist and must not contain the same reference. If an operator updates the job and carries the label forward, that reference appears in both specifications. Swarrow treats the original execution as superseded because the operator's update starts a different execution.
+This behaviour depends on the job's current image. If another release has replaced it, a fresh authorised request for the earlier digest may start that image again once the current execution has finished. Swarrow keeps no durable request history to distinguish that request from an intentional release. Workflows must serialise the migration and web deployment together and avoid retrying an obsolete release.
 
 ### Deciding whether the job finished
 
-Swarm assigns each job execution an iteration number. Swarrow reads that number from Swarm and observes only tasks from that iteration; it does not calculate what the next number should be. Tasks from an older execution cannot prove that the current one succeeded.
+Swarm assigns each job execution an iteration number. Swarrow reads that number from Swarm and observes only tasks from that iteration; it does not calculate what the next number should be. Tasks from an older execution cannot prove that the current one succeeded. If the service is replaced, its image changes or a different iteration appears during observation, Swarrow reports `superseded`.
 
 Swarrow inspects the service before and after listing its tasks. If the service version changes between those inspections, it discards the results and tries again. Success requires exactly one task that completed with exit code zero. A failed execution must block web deployment, and missing task evidence must never count as success.
 
 Before changing the image for another execution, Swarrow requires evidence that the current iteration's tasks have finished. Running tasks, missing task history or inconsistent inspection results block the update. This matters because updating a Swarm job stops its running tasks and starts a new execution.
 
-There is no separate operation database. Swarrow relies on the current service label, the previous specification and task history. If that evidence is removed or replaced, Swarrow cannot assume success or safely start another execution.
+Swarrow uses the current job iteration and task history to determine the result. Missing task evidence remains inconclusive and prevents an image update; it never implies success.
 
 ### Provisioning and limits
 
-Swarrow cannot adopt an untracked execution for the same digest, including the initial execution created during provisioning. It leaves completed tasks and the job definition in Swarm.
+A request matching the initial image observes the execution started during provisioning, even though Swarrow did not start it. Swarrow leaves completed tasks and the job definition in Swarm.
 
-The retry rules prevent Swarrow from starting a second execution in response to a retry. They cannot guarantee exactly-once database effects across node failures or operator intervention. Migration code still needs database locking and safe handling of repeated runs. Schema changes must also remain compatible with the old application during rollout.
+Observing a matching image avoids restarting that job on a retry. It does not guarantee exactly-once database effects across releases, node failures or operator intervention. Migration code still needs database locking and safe handling of repeated runs. Schema changes must also remain compatible with the old application during rollout.
 
-Before release, the implementation must be tested against a live Swarm to verify job iteration changes, preservation of the previous specification and recovery after a lost update response. Docker documents the underlying [job creation](https://docs.docker.com/reference/cli/docker/service/create/#running-as-a-job) and [job update](https://docs.docker.com/reference/cli/docker/service/update/#updating-jobs) behaviour.
+Before release, the implementation must be tested against a live Swarm to verify job iteration changes, observation of an existing execution and recovery after a lost update response. Docker documents the underlying [job creation](https://docs.docker.com/reference/cli/docker/service/create/#running-as-a-job) and [job update](https://docs.docker.com/reference/cli/docker/service/update/#updating-jobs) behaviour.
 
 The proposed [configuration](configuration.md#proposed-job-targets), [HTTP contract](http-api.md#proposed-job-api) and [threat controls](threat-model.md#proposed-job-execution-controls) define the corresponding interfaces and constraints.
 

@@ -68,7 +68,7 @@ The [HTTP API](http-api.md) defines request validation, responses and status cod
 ## Proposed job targets
 
 > [!NOTE]
-> This section proposes job support for a later implementation. The current release does not support job targets or the preparation endpoint.
+> This section proposes job support for a later implementation. The current release does not support job targets.
 
 Set `target.mode: job` to opt a deployment into predefined job execution:
 
@@ -81,7 +81,7 @@ target:
 
 Omitting `mode`, or setting it to `service`, preserves ordinary rollout behaviour. Other values are rejected. Job and web targets need separate deployment names and service names, but may share the same workflow identity and approved image repository.
 
-The job must already exist in Swarm as a `replicated-job` with `TotalCompletions: 1`, `MaxConcurrent: 1` and restart condition `none`. Swarrow checks these settings before mutation. Global jobs and ordinary services are rejected for a job target. The operator supplies the migration command and all runtime settings. Swarrow owns only the job image and the reserved service label `io.swarrow.execution`; do not set or copy that label in infrastructure configuration.
+The job must already exist in Swarm as a `replicated-job` with `TotalCompletions: 1`, `MaxConcurrent: 1` and restart condition `none`. Swarrow checks these settings before mutation. Global jobs and ordinary services are rejected for a job target. The operator supplies the migration command and all runtime settings. Swarrow changes only the job image. A request for the current image observes the existing execution without updating the service.
 
 ## Validation
 
