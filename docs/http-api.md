@@ -70,7 +70,7 @@ A completed response has this shape:
 > [!NOTE]
 > This section proposes job support for a later implementation. The current release does not support job targets.
 
-For a target configured with `mode: job`, use the same deployment endpoint, Bearer authentication and digest-only body as an ordinary service:
+Send the image digest to a deployment configured with `mode: job`. Swarrow runs the migrations and waits for the result, or watches the existing run if the job already uses that image:
 
 ```http
 POST /v1/deployments/example-migrate
@@ -82,13 +82,22 @@ Content-Type: application/json
 }
 ```
 
-If the job already uses the requested image, Swarrow observes its current execution without updating it. Otherwise, it changes the image only after confirming that the previous execution has finished. Requests keep the existing 1 KiB body limit and strict digest-only validation.
+The request uses the same authentication, 1 KiB body limit and strict digest-only validation as an ordinary deployment. If the requested image differs, Swarrow changes the job's image only after confirming that the previous run has finished.
 
-Responses use the normal deployment response shape. `action: no_change` means Swarrow observed the existing execution; it does not imply success. `200` with `completed` means the job's task exited successfully. `502` with `failed` means the execution failed and must block web deployment. Repeating the failed job's current digest observes that failure without restarting it.
+Deploy the web service only when the response confirms that the migration succeeded. A timeout or lost connection does not establish success or failure: the migration may still be running. Send the same digest again to observe it while that image remains current. Renew the authentication token if needed. If another release has replaced the image, a new request for the old digest may run it again, so do not retry an obsolete release.
 
-`202` with `in_progress` means the image was selected but completion was still unknown when observation ended. `504` means Swarrow could not confirm that Docker selected the image before the request timeout. A disconnected response is also an unknown outcome. The caller may repeat the digest with a fresh authorised token when necessary. While the requested image remains current, this observes the existing execution. If a different release has replaced it, a fresh request may apply the earlier digest again; callers must avoid retrying obsolete releases.
+Responses use the normal deployment response shape. The `action` describes whether Swarrow changed the image; `no_change` means it observed the existing run, not that the migration succeeded. The `conclusion` reports the result:
 
-`409` with `superseded` means another update replaced the execution during observation or a concurrent change prevented the image update. `409` with `job_busy` means an image update was blocked because the previous execution is active or lacks evidence that it has finished. Missing task evidence never counts as success. See the [job lifecycle](design.md#proposed-predefined-job-executions) for the observation and retry rules.
+| Response | Meaning |
+| --- | --- |
+| `200` with `completed` | The migration task exited successfully. The workflow can deploy the web service. |
+| `502` with `failed` | The migration failed. The workflow must stop. Sending its current digest again reports the failure without restarting the job. |
+| `202` with `in_progress` | The requested image is selected, but the migration's result is not yet known. |
+| `504` | The request timed out before Swarrow could confirm that Docker selected the image. |
+| `409` with `superseded` | Another update replaced the run being observed, or a concurrent change prevented the image update. |
+| `409` with error code `job_busy` | Swarrow blocked an image change because the previous run is active or it cannot confirm that it has finished. |
+
+Missing task records never count as success. See the [job lifecycle](design.md#proposed-predefined-job-executions) for how Swarrow checks completion and handles retries.
 
 ## Status codes
 
