@@ -25,6 +25,7 @@ type jobFake struct {
 	accept        bool
 	complete      bool
 	afterList     func()
+	afterUpdate   func()
 	updateOptions clienttypes.ServiceUpdateOptions
 	inspections   int
 	inspectError  error
@@ -89,6 +90,9 @@ func (f *jobFake) ServiceUpdate(_ context.Context, id string, options clienttype
 		} else {
 			f.setTask(swarmtypes.TaskStateRunning, 0)
 		}
+	}
+	if f.afterUpdate != nil {
+		f.afterUpdate()
 	}
 	return clienttypes.ServiceUpdateResult{Warnings: []string{"warning"}}, f.updateError
 }
@@ -391,5 +395,36 @@ func TestJobCancellationBeforeUpdateDoesNotMutate(t *testing.T) {
 	_, _, err := jobRunnerForTest(t, f).Run(ctx, f.service.ID, jobRepository, jobDigest)
 	if !errors.Is(err, context.Canceled) || f.updates != 0 {
 		t.Fatalf("err=%v updates=%d", err, f.updates)
+	}
+}
+
+func TestJobRejectsReplacementBeforeFirstObservation(t *testing.T) {
+	f := newJobFake()
+	f.complete = false
+	f.afterUpdate = func() {
+		f.afterUpdate = nil
+		// An operator starts a new run of the same image before Swarrow inspects it.
+		spec := f.service.Spec
+		spec.TaskTemplate.ForceUpdate++
+		f.complete = true
+		_, err := f.ServiceUpdate(context.Background(), f.service.ID, clienttypes.ServiceUpdateOptions{
+			Version: f.service.Version, Spec: spec,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, observed, err := jobRunnerForTest(t, f).Run(context.Background(), f.service.ID, jobRepository, jobDigest)
+	if err != nil || result.Action != ActionUpdated || observed.Conclusion != ConclusionSuperseded || f.updates != 2 {
+		t.Fatalf("run = %+v %+v %v updates=%d", result, observed, err, f.updates)
+	}
+}
+
+func TestJobRequiresPreviousSpecBeforeAdoptingUpdatedIteration(t *testing.T) {
+	f := newJobFake()
+	f.afterUpdate = func() { f.service.PreviousSpec = nil }
+	_, observed, err := jobRunnerForTest(t, f).Run(context.Background(), f.service.ID, jobRepository, jobDigest)
+	if err != nil || observed.Conclusion != ConclusionSuperseded || f.updates != 1 {
+		t.Fatalf("run = %+v %v updates=%d", observed, err, f.updates)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -48,7 +49,6 @@ func (jobs *Jobs) Run(ctx context.Context, name, repository, digest string) (Res
 		return Result{}, Observation{}, err
 	}
 	result := Result{ServiceID: service.ID, Image: image, InspectedVersion: service.Version.Index}
-	iteration := service.JobStatus.JobIteration.Index
 	if sameImage(service.Spec.TaskTemplate.ContainerSpec.Image, image) {
 		result.Action = ActionNoChange
 	} else {
@@ -87,7 +87,7 @@ func (jobs *Jobs) Run(ctx context.Context, name, repository, digest string) (Res
 		result.Action = ActionUpdated
 		result.Warnings = append([]string(nil), updated.Warnings...)
 	}
-	observation, err := jobs.observe(ctx, service.ID, image, iteration, result.Action == ActionUpdated)
+	observation, err := jobs.observe(ctx, service, image, result.Action == ActionUpdated)
 	return result, observation, err
 }
 
@@ -107,7 +107,9 @@ func (jobs *Jobs) inspect(ctx context.Context, name string) (swarmtypes.Service,
 	return s, nil
 }
 
-func (jobs *Jobs) observe(ctx context.Context, id, image string, iteration uint64, awaitingIteration bool) (Observation, error) {
+func (jobs *Jobs) observe(ctx context.Context, initial swarmtypes.Service, image string, awaitingIteration bool) (Observation, error) {
+	id := initial.ID
+	iteration := initial.JobStatus.JobIteration.Index
 	ticker := time.NewTicker(jobs.interval)
 	defer ticker.Stop()
 	last := Observation{Conclusion: ConclusionInProgress}
@@ -130,6 +132,10 @@ func (jobs *Jobs) observe(ctx context.Context, id, image string, iteration uint6
 		}
 		// Docker advances the iteration on update, but does not promise an increment of one.
 		if awaitingIteration && service.JobStatus.JobIteration.Index > iteration {
+			// A later update replaces PreviousSpec, even when it keeps the same image.
+			if !reflect.DeepEqual(service.PreviousSpec, &initial.Spec) {
+				return Observation{Conclusion: ConclusionSuperseded}, nil
+			}
 			iteration = service.JobStatus.JobIteration.Index
 			awaitingIteration = false
 		}
