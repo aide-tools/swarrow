@@ -48,6 +48,7 @@ type Identity struct {
 
 // Target identifies the existing Swarm service and permitted image repository.
 type Target struct {
+	Mode    string `yaml:"mode"`
 	Service string `yaml:"service"`
 	Image   string `yaml:"image"`
 }

@@ -40,6 +40,16 @@ func NewJobs(client jobClient, interval time.Duration) (*Jobs, error) {
 // Cancellation stops observation without stopping or restarting the job.
 // Callers must authorise and serialise requests before calling Run.
 func (jobs *Jobs) Run(ctx context.Context, name, repository, digest string) (Result, Observation, error) {
+	return jobs.run(ctx, name, repository, digest, nil)
+}
+
+// Retry rechecks an uncertain submission. It can update only the originally
+// inspected version; a matching image is observed without another update.
+func (jobs *Jobs) Retry(ctx context.Context, name, repository, digest string, version uint64) (Result, Observation, error) {
+	return jobs.run(ctx, name, repository, digest, &version)
+}
+
+func (jobs *Jobs) run(ctx context.Context, name, repository, digest string, expectedVersion *uint64) (Result, Observation, error) {
 	image, err := buildImageReference(repository, digest)
 	if err != nil {
 		return Result{}, Observation{}, err
@@ -52,6 +62,9 @@ func (jobs *Jobs) Run(ctx context.Context, name, repository, digest string) (Res
 	if sameImage(service.Spec.TaskTemplate.ContainerSpec.Image, image) {
 		result.Action = ActionNoChange
 	} else {
+		if expectedVersion != nil && service.Version.Index != *expectedVersion {
+			return result, Observation{Conclusion: ConclusionSuperseded}, ErrConflict
+		}
 		prior, stable, err := jobs.snapshot(ctx, service)
 		if err != nil {
 			return result, Observation{}, err
@@ -107,12 +120,27 @@ func (jobs *Jobs) inspect(ctx context.Context, name string) (swarmtypes.Service,
 	return s, nil
 }
 
+// Observe resumes an established execution without ever changing its image.
+// If no iteration was established before interruption, it fails closed.
+func (jobs *Jobs) Observe(ctx context.Context, target Target) (Observation, error) {
+	if target.JobIteration == nil {
+		return Observation{Conclusion: ConclusionSuperseded}, nil
+	}
+	initial := swarmtypes.Service{ID: target.ServiceID, JobStatus: &swarmtypes.JobStatus{
+		JobIteration: swarmtypes.Version{Index: *target.JobIteration},
+	}}
+	return jobs.observe(ctx, initial, target.Image, false)
+}
+
 func (jobs *Jobs) observe(ctx context.Context, initial swarmtypes.Service, image string, awaitingIteration bool) (Observation, error) {
 	id := initial.ID
 	iteration := initial.JobStatus.JobIteration.Index
 	ticker := time.NewTicker(jobs.interval)
 	defer ticker.Stop()
 	last := Observation{Conclusion: ConclusionInProgress}
+	if !awaitingIteration {
+		last.JobIteration = cloneUint64(&iteration)
+	}
 	for {
 		if ctx.Err() != nil {
 			return last, nil
@@ -138,6 +166,7 @@ func (jobs *Jobs) observe(ctx context.Context, initial swarmtypes.Service, image
 			}
 			iteration = service.JobStatus.JobIteration.Index
 			awaitingIteration = false
+			last.JobIteration = cloneUint64(&iteration)
 		}
 		if !awaitingIteration && service.JobStatus.JobIteration.Index != iteration {
 			return Observation{Conclusion: ConclusionSuperseded}, nil
@@ -180,7 +209,7 @@ func (jobs *Jobs) snapshot(ctx context.Context, service swarmtypes.Service) (Obs
 	if after.ID != service.ID || after.Version.Index != service.Version.Index || after.JobStatus.JobIteration != service.JobStatus.JobIteration {
 		return Observation{}, false, nil
 	}
-	observation := Observation{Conclusion: ConclusionInProgress, Message: "job execution is in progress"}
+	observation := Observation{Conclusion: ConclusionInProgress, Message: "job execution is in progress", JobIteration: cloneUint64(&service.JobStatus.JobIteration.Index)}
 	completed, terminal, count := 0, true, 0
 	for _, task := range tasks.Items {
 		if task.ServiceID != service.ID || task.JobIteration == nil || task.JobIteration.Index != service.JobStatus.JobIteration.Index {

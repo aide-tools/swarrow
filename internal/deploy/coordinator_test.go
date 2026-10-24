@@ -22,7 +22,7 @@ func TestNewCreatesAValidatedCoordinator(t *testing.T) {
 	rootCtx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	coordinator, err := New(rootCtx, configuration, policy.New(configuration), &fakeUpdater{}, &fakeObserver{})
+	coordinator, err := New(rootCtx, configuration, policy.New(configuration), &fakeUpdater{}, &fakeObserver{}, nil)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -82,7 +82,7 @@ func TestDeployRejectsUnauthorisedRequestsBeforeDocker(t *testing.T) {
 func TestDeployRejectsRequestsAfterCoordinatorShutdown(t *testing.T) {
 	configuration := testConfiguration("example-web")
 	rootCtx, cancel := context.WithCancel(context.Background())
-	coordinator, err := newCoordinator(rootCtx, configuration, policy.New(configuration), &fakeUpdater{}, &fakeObserver{}, 1, 32, time.Now)
+	coordinator, err := newCoordinator(rootCtx, configuration, policy.New(configuration), &fakeUpdater{}, &fakeObserver{}, nil, 1, 32, time.Now)
 	if err != nil {
 		t.Fatalf("newCoordinator() error = %v", err)
 	}
@@ -106,7 +106,7 @@ func TestCoordinatorShutdownCancelsQueuedRequestsWithoutApplyingThem(t *testing.
 		<-ctx.Done()
 		return swarm.Result{}, ctx.Err()
 	}}
-	coordinator, err := newCoordinator(rootCtx, configuration, policy.New(configuration), updater, &fakeObserver{}, 1, 32, time.Now)
+	coordinator, err := newCoordinator(rootCtx, configuration, policy.New(configuration), updater, &fakeObserver{}, nil, 1, 32, time.Now)
 	if err != nil {
 		t.Fatalf("newCoordinator() error = %v", err)
 	}
@@ -668,7 +668,7 @@ func newTestCoordinator(t *testing.T, configuration config.Config, updater *fake
 	t.Helper()
 	rootCtx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	coordinator, err := newCoordinator(rootCtx, configuration, policy.New(configuration), updater, observer, queueCapacity, 32, time.Now)
+	coordinator, err := newCoordinator(rootCtx, configuration, policy.New(configuration), updater, observer, nil, queueCapacity, 32, time.Now)
 	if err != nil {
 		t.Fatalf("newCoordinator() error = %v", err)
 	}

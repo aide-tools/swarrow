@@ -61,7 +61,11 @@ func Run(ctx context.Context, path string, version string, logger *slog.Logger) 
 	if err != nil {
 		return fmt.Errorf("create rollout observer: %w", err)
 	}
-	coordinator, err := deploy.New(ctx, configuration, policy.New(configuration), swarm.NewUpdater(dockerClient), observer)
+	jobs, err := swarm.NewJobs(dockerClient, rolloutPollInterval)
+	if err != nil {
+		return fmt.Errorf("create job observer: %w", err)
+	}
+	coordinator, err := deploy.New(ctx, configuration, policy.New(configuration), swarm.NewUpdater(dockerClient), observer, jobs)
 	if err != nil {
 		return fmt.Errorf("create deployment coordinator: %w", err)
 	}

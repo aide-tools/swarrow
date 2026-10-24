@@ -65,10 +65,7 @@ The configured `target.image` is only a repository name and must not contain a t
 
 The [HTTP API](http-api.md) defines request validation, responses and status codes.
 
-## Proposed job targets
-
-> [!NOTE]
-> This section proposes job support for a later implementation. The current release does not support job targets.
+## Job targets
 
 Set `target.mode: job` to run migrations through an existing Swarm job. Swarrow waits for the job to finish instead of waiting for a web service to become ready:
 
@@ -108,6 +105,7 @@ Swarrow validates configuration before making it available as policy. It rejects
 - A `repository_id` is not the canonical positive decimal form of a GitHub repository ID
 - Deployment names or concrete Swarm service targets are duplicated
 - A target image is not a valid container image repository, or includes a tag or digest
+- A target mode is neither `service` nor `job` (omitting it selects `service`)
 - Configuration attempts to select another issuer
 
 The readable `repository` field is optional and used only for diagnostics. A deployment-level `job_workflow_ref` is also optional and overrides the top-level default when the operator deliberately authorises another shared workflow for that deployment. The same workflow identity may appear in several deployments when the operator deliberately grants it access to several targets.

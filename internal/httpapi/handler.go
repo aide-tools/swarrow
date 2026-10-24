@@ -304,6 +304,8 @@ func writeDeployError(writer http.ResponseWriter, outcome deploy.Outcome, err er
 		status, code, message = http.StatusForbidden, "forbidden", "Deployment authorisation denied"
 	case errors.Is(err, replay.ErrCapacity), errors.Is(err, deploy.ErrQueueFull):
 		status, code, message = http.StatusTooManyRequests, "capacity_exhausted", "Deployment capacity is exhausted"
+	case errors.Is(err, swarm.ErrJobBusy):
+		status, code, message = http.StatusConflict, "job_busy", "The previous job has not finished"
 	case errors.Is(err, swarm.ErrConflict):
 		status, code, message = http.StatusConflict, "service_conflict", "The service changed concurrently"
 	case errors.Is(err, context.DeadlineExceeded):

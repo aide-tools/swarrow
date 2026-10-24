@@ -63,12 +63,9 @@ A completed response has this shape:
 }
 ```
 
-`action` records what Swarrow established about the image mutation. `conclusion` records the rollout state it observed. Failed task details may be included when Swarm reports them. Docker service IDs and version indexes are never returned.
+`action` records what Swarrow established about the image mutation. `conclusion` records the rollout state it observed. Failed task details may be included when Swarm reports them. Docker service IDs, version indexes and job iteration numbers are never returned.
 
-## Proposed job API
-
-> [!NOTE]
-> This section proposes job support for a later implementation. The current release does not support job targets.
+## Job API
 
 Send the image digest to a deployment configured with `mode: job`. Swarrow runs the migrations and waits for the result, or watches the existing run if the job already uses that image:
 
@@ -94,10 +91,10 @@ Responses use the normal deployment response shape. The `action` describes wheth
 | `502` with `failed` | The migration failed. The workflow must stop. Sending its current digest again reports the failure without restarting the job. |
 | `202` with `in_progress` | The requested image is selected, but the migration's result is not yet known. |
 | `504` | The request timed out before Swarrow could confirm that Docker selected the image. |
-| `409` with `superseded` | Another update replaced the run being observed, or a concurrent change prevented the image update. |
+| `409` with `superseded` | Another update replaced the run being observed, a concurrent change prevented the image update or a retry could not identify the original run. |
 | `409` with error code `job_busy` | Swarrow blocked an image change because the previous run is active or it cannot confirm that it has finished. |
 
-Missing task records never count as success. See the [job lifecycle](design.md#proposed-predefined-job-executions) for how Swarrow checks completion and handles retries.
+Missing task records never count as success. See the [job lifecycle](design.md#predefined-job-executions) for how Swarrow checks completion and handles retries.
 
 ## Status codes
 

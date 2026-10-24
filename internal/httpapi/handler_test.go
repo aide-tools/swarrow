@@ -285,6 +285,7 @@ func TestDeploymentMapsOperationalErrors(t *testing.T) {
 		"reused token":    {err: replay.ErrReused, status: http.StatusForbidden, code: "forbidden"},
 		"replay capacity": {err: replay.ErrCapacity, status: http.StatusTooManyRequests, code: "capacity_exhausted"},
 		"queue capacity":  {err: deploy.ErrQueueFull, status: http.StatusTooManyRequests, code: "capacity_exhausted"},
+		"job busy":        {err: swarm.ErrJobBusy, status: http.StatusConflict, code: "job_busy"},
 		"conflict":        {err: swarm.ErrConflict, status: http.StatusConflict, code: "service_conflict"},
 		"timeout":         {err: context.DeadlineExceeded, status: http.StatusGatewayTimeout, code: "request_timeout"},
 		"cancelled":       {err: context.Canceled, status: http.StatusRequestTimeout, code: "request_cancelled"},
