@@ -87,6 +87,109 @@ Each initial worker admits at most 16 waiting requests in addition to the reques
 
 A request retains its original timeout while queued. If that timeout expires before processing begins, Swarrow removes the request without calling Docker and reports that no update was applied. A full queue is also rejected without calling Docker. Docker's version index still protects against changes made outside Swarrow, which must be reported explicitly rather than overwritten. Application workflows remain responsible for deciding release order.
 
+## Proposed predefined job executions
+
+> [!NOTE]
+> This section proposes job support for a later implementation. The current release does not support job targets.
+
+The proposed release sequence is: publish an image, run its migrations, then deploy that same digest to the web service. The workflow proceeds to deployment only after the migration task exits successfully.
+
+A Swarm job runs a container command to completion. For example, a migration container applies database changes and exits, while a web container keeps running to serve requests. Swarm calls each scheduled container run a *task*. When a job task exits successfully, Swarm marks it complete instead of starting it again.
+
+The [`replicated-job` mode](https://docs.docker.com/reference/cli/docker/service/create/#replicated-jobs) lets the operator choose how many tasks the job should complete and how many may run at once. This proposal uses just one task. The job definition stays in Swarm after the container exits, so a later image update can start a new execution using the same command, secrets and networks.
+
+The operator defines the migration command and gives the job the settings, secrets and network access it needs. Swarrow uses that existing definition. The job runs one task and does not automatically restart it if it fails.
+
+Swarrow updates the existing job's image and waits for its result. It does not create or remove services, change commands or force jobs to rerun. The workflow decides when to submit the migration and web targets; Swarrow does not enforce a dependency between them.
+
+### Example migration job
+
+This stack definition runs one migration task with automatic retries disabled. Replace the image digest and command with an approved image and its migration command, then supply the secrets or environment settings it needs to access the database. The `database` overlay network must already exist.
+
+```yaml
+services:
+  migrate:
+    image: ghcr.io/example/myapp@sha256:<approved-image-digest>
+    command: ["/app/bin/migrate"]
+    networks:
+      - database
+    deploy:
+      mode: replicated-job
+      replicas: 1
+      restart_policy:
+        condition: none
+
+networks:
+  database:
+    external: true
+```
+
+> [!IMPORTANT]
+> Creating this job runs the migration immediately. It is not a dormant template. Use an initial image whose migration command is safe to run and let it finish before Swarrow replaces it. The job definition remains after the container exits.
+
+Docker CLI v29 supports this job mode in [stack definitions](https://github.com/docker/cli/blob/v29.0.0/cli/compose/convert/service.go#L619-L623). For a stack named `myapp`, the service is named `myapp_migrate`. The proposed Swarrow deployment target would be:
+
+```yaml
+target:
+  mode: job
+  service: myapp_migrate
+  image: ghcr.io/example/myapp
+```
+
+The [configuration contract](configuration.md#proposed-job-targets) describes how this target fits into a deployment policy. Later releases would submit a new digest to Swarrow, which updates the existing job's image and waits for the migration to finish.
+
+### Starting or observing a job
+
+The workflow sends one request containing the image digest. Swarrow inspects the configured job and compares its current image with the requested image:
+
+- If they match, Swarrow observes the existing execution without updating the service. This includes jobs that are still running, have succeeded or have failed.
+- If they differ, Swarrow first checks that the previous execution has finished, then changes only the image and observes the new execution. If someone changes the service at the same time, Swarrow reports a conflict instead of overwriting their change.
+
+The workflow must be authorised for the migration target, just as it must be for a web deployment. Requests for the same service are handled one at a time, and each request has a time limit.
+
+### Retrying after a lost response
+
+If the connection drops or the request times out, the migration keeps running in Swarm. The workflow can send the same digest again, renewing its authentication token if needed. While the job still uses that image, Swarrow watches the current run without restarting it. If the run has failed, Swarrow reports that failure again.
+
+Retry only while that release is still current. If another release has changed the job's image, a new authorised request for the old digest may run it again after the current migration finishes. The workflow must run releases one at a time, keeping each migration and web deployment together, and avoid retrying an obsolete release.
+
+### Deciding whether the job finished
+
+Swarrow checks two things: did this migration succeed, and is it safe to start the next one?
+
+Swarm keeps records of earlier runs. Yesterday's migration may have succeeded while today's is still running, so Swarrow must check the result of the current run:
+
+- If its task completes with exit code zero, the migration succeeded and the workflow can deploy the web service.
+- If it fails, Swarrow reports failure and the workflow must stop.
+- If it is still running or its result is unavailable, success has not been established and web deployment must wait.
+
+Before starting a different image, Swarrow also checks that the current migration has finished. Updating a Swarm job stops its running tasks, so this check prevents a new release from interrupting a migration. If Swarrow cannot establish whether the current run has finished, it blocks the image update.
+
+### Provisioning and limits
+
+The first run behaves like later runs: sending its digest lets Swarrow observe it, even though creating the job started it. Swarrow leaves the job definition and completed task records in Swarm.
+
+Avoiding a restart on retry does not guarantee that database changes happen only once. A later release, a node failure or an operator's actions can still lead to another run. Migration code needs database locking and must handle repeated runs safely. Schema changes must also work with the old application while the new version is being deployed.
+
+Docker documents the underlying [job creation](https://docs.docker.com/reference/cli/docker/service/create/#running-as-a-job) and [job update](https://docs.docker.com/reference/cli/docker/service/update/#updating-jobs) behaviour.
+
+<details>
+<summary>Implementation requirements</summary>
+
+Every request must pass authentication and authorisation before reaching Docker. The existing replay rules bind the token's `jti` to the deployment and digest. Job requests use the existing bounded per-service queue and request timeout. Image updates submit the inspected Docker service version to prevent overwriting concurrent changes.
+
+Swarm assigns each execution an iteration number. Swarrow reads that number rather than calculating the next value and observes only tasks belonging to that iteration. Success requires exactly one completed task with exit code zero. If the service is replaced, its image changes or a different iteration appears during observation, Swarrow reports `superseded`.
+
+Swarrow inspects the service before and after listing its tasks. If the service version changes between those inspections, it discards the results and tries again. Before an image update, it requires consistent evidence that the current iteration's tasks have finished. Running tasks, missing task history or inconsistent inspection results block the update.
+
+Swarrow keeps no durable request history to distinguish an obsolete release from an intentional request for the same digest. Observation after a restart uses the current job state.
+
+Before release, test against a live Swarm to verify job iteration changes, observation of an existing execution and recovery after a lost update response.
+
+</details>
+
+The proposed [configuration](configuration.md#proposed-job-targets), [HTTP contract](http-api.md#proposed-job-api) and [threat controls](threat-model.md#proposed-job-execution-controls) define the corresponding interfaces and constraints.
+
 ## GitHub identity policy
 
 GitHub Actions jobs can request a short-lived OpenID Connect token containing signed claims about the running job. Swarrow first authenticates that token as a statement from GitHub, then authorises the job by comparing a small set of its claims with local deployment policy.

@@ -91,6 +91,28 @@ Retries or concurrent workflows may submit the same or competing digests.
 
 An exact retry must not repeat the service mutation. Requests targeting the same service must enter a fixed-capacity queue and be serialised through the apply-and-observe lifecycle. The request timeout must include time spent waiting, and an expired or excess queued request must not reach Docker. Docker version conflicts and an outside update that supersedes the requested image must produce explicit results rather than accidental last-write-wins behaviour. Application workflows remain responsible for release ordering.
 
+### Proposed job execution controls
+
+> [!NOTE]
+> This section proposes job support for a later implementation. The current release does not support job targets.
+
+A lost connection must not cause a running migration to start again. When the requested image is still current, Swarrow observes that run without updating the service. This applies whether the run is active, completed or failed, including after Swarrow restarts and the workflow obtains a new authentication token.
+
+A new release must not interrupt an unfinished migration, and an old run's success must not count as success for the current one. Swarrow therefore blocks image changes until it can confirm that the current run has finished. If someone replaces the job or starts a different run while Swarrow is watching, it reports that change rather than claiming the original run succeeded.
+
+These controls do not establish release order. After another release changes the image, a new authorised request for an old digest may run it again. The workflow must run releases one at a time, keep migration and web deployment together and avoid retrying obsolete releases. Swarrow does not enforce the dependency between those targets. Migration code still needs database locking and safe recovery because node failures, later releases or operator actions can cause repeated database work.
+
+<details>
+<summary>Required implementation controls</summary>
+
+Every request uses the existing identity policy and deployment-and-digest replay binding. Job targets require a single-task job with automatic restarts disabled. Swarrow changes only the image and submits Docker's inspected version index to protect concurrent changes.
+
+Success requires exactly one completed task from the observed job iteration with a confirmed zero exit code. A replacement service, image or iteration during observation must produce `superseded`. Missing task history must not imply success or permit an image update. The [design requirements](design.md#deciding-whether-the-job-finished) describe the completion checks.
+
+The digest identifies an image, not a unique execution across releases. Reapplying an older digest is an accepted risk of using current Swarm state without durable request history. HTTP retries and Swarm observation do not guarantee exactly-once database effects.
+
+</details>
+
 ### Malicious image
 
 An authorised repository may deliberately or accidentally deploy malicious code. That code may read the target service's secrets, access attached networks, modify mounted storage or exercise configured Linux capabilities.

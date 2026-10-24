@@ -65,6 +65,33 @@ The configured `target.image` is only a repository name and must not contain a t
 
 The [HTTP API](http-api.md) defines request validation, responses and status codes.
 
+## Proposed job targets
+
+> [!NOTE]
+> This section proposes job support for a later implementation. The current release does not support job targets.
+
+Set `target.mode: job` to run migrations through an existing Swarm job. Swarrow waits for the job to finish instead of waiting for a web service to become ready:
+
+```yaml
+target:
+  mode: job
+  service: example_migrate
+  image: ghcr.io/example/example-web
+```
+
+The `service` field names the job the operator has already created. The `image` field limits requests to the approved image repository. Swarrow changes only the image; the operator controls the migration command and all other settings. If a request names the image already in use, Swarrow observes the existing run without restarting it.
+
+Give the migration job and web service separate deployment names and service names. They may use the same workflow identity and image repository. See the [stack example](design.md#example-migration-job) for a job definition, including the fact that creating it starts the migration immediately.
+
+Omit `mode`, or set it to `service`, to keep ordinary rollout behaviour. Other mode values are rejected. A job target requires a `replicated-job` that runs one task with automatic restarts disabled; global jobs and ordinary services are not accepted.
+
+<details>
+<summary>Docker settings checked before an image update</summary>
+
+The job must have `TotalCompletions: 1`, `MaxConcurrent: 1` and restart condition `none`. Swarrow checks these settings before changing the image.
+
+</details>
+
 ## Validation
 
 Swarrow validates configuration before making it available as policy. It rejects the document when:
