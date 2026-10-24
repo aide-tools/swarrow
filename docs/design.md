@@ -94,7 +94,11 @@ A request retains its original timeout while queued. If that timeout expires bef
 
 The proposed release sequence is: publish an image, run its migrations, then deploy that same digest to the web service. The workflow proceeds to deployment only after the migration task exits successfully.
 
-The operator creates a Swarm `replicated-job` and configures a Swarrow target with `mode: job` to use it. The job must run one task, require one successful completion and disable automatic restarts (`restart-condition: none`). Its command, configuration, secrets, networks and restart policy remain under the operator's control.
+A Swarm job runs a container command to completion. For example, a migration container applies database changes and exits, while a web container keeps running to serve requests. Swarm calls each scheduled container run a *task*. When a job task exits successfully, Swarm marks it complete instead of starting it again.
+
+The [`replicated-job` mode](https://docs.docker.com/reference/cli/docker/service/create/#replicated-jobs) lets the operator choose how many tasks the job should complete and how many may run at once. This proposal uses just one task. The job definition stays in Swarm after the container exits, so a later image update can start a new execution using the same command, secrets and networks.
+
+The operator creates this job and configures a Swarrow target with `mode: job` to use it. The job must run one task, require one successful completion and disable automatic restarts (`restart-condition: none`). Its command, configuration, secrets, networks and restart policy remain under the operator's control.
 
 Swarrow updates the existing job's image and waits for its result. It does not create or remove services, change commands or force jobs to rerun. The workflow decides when to submit the migration and web targets; Swarrow does not enforce a dependency between them.
 
